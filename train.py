@@ -11,7 +11,13 @@ from analytics.metrics import WormAnalytics
 import time
 from datetime import datetime, timedelta
 import sys
+import os
 from app import WormGame
+
+# Set up environment variables for display
+os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
+os.environ["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"
+os.environ["SDL_VIDEODRIVER"] = "x11"
 
 # Initialize pygame (headless mode)
 pygame.init()

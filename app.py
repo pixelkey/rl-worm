@@ -87,6 +87,11 @@ class WormGame:
     def __init__(self, headless=False):
         if headless:
             os.environ["SDL_VIDEODRIVER"] = "dummy"
+        else:
+            # Force OpenGL to use NVIDIA driver
+            os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
+            os.environ["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"
+            os.environ["SDL_VIDEODRIVER"] = "x11"
             
         pygame.init()
         self.headless = headless
@@ -111,7 +116,7 @@ class WormGame:
         
         # Create game surface and screen based on mode
         if not headless:
-            self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+            self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), pygame.SWSURFACE)
             pygame.display.set_caption("AI Worm" + (" (Demo Mode)" if args.demo else ""))
         else:
             pygame.display.set_mode((1, 1))  # Minimal display for headless mode
