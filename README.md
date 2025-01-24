@@ -2,6 +2,31 @@
 
 This project implements an intelligent worm that learns to navigate its environment using Deep Reinforcement Learning (DRL). The worm uses a Deep Q-Network (DQN) to develop sophisticated movement patterns and exploration strategies.
 
+## Installation
+
+1. **Create and activate virtual environment**:
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+.\venv\Scripts\activate
+```
+
+2. **Install dependencies**:
+```bash
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118  # For CUDA support
+pip install pygame numpy matplotlib pandas plotly seaborn
+```
+
+3. **Create required directories**:
+```bash
+mkdir -p models/saved analytics/reports
+```
+
 ## Features
 
 - **Deep Q-Learning Implementation**: Uses PyTorch for neural network training
@@ -57,17 +82,21 @@ The training uses several advanced DRL techniques:
 
 ## Usage
 
-1. **Demo Mode**:
-```bash
-python app.py
-```
-Shows the worm using its best learned behavior
-
-2. **Training Mode**:
+1. **Training Mode**:
 ```bash
 python train.py
 ```
-Starts fast training mode with analytics
+This starts the training process. The worm will learn to:
+- Navigate efficiently
+- Avoid walls
+- Explore the environment
+- Develop smooth movement patterns
+
+2. **Demo Mode**:
+```bash
+python app.py --demo
+```
+Shows the worm using its best learned behavior.
 
 3. **Key Controls**:
 - ESC: Exit
@@ -83,15 +112,6 @@ The system generates detailed analytics every 50 episodes:
 - Wall collision frequency
 - Training metrics (epsilon, loss)
 
-## Requirements
-
-- Python 3.12+
-- PyTorch with CUDA support
-- Pygame
-- NumPy
-- Pandas (for analytics)
-- Plotly (for visualization)
-
 ## Project Structure
 
 ```
@@ -104,6 +124,15 @@ The system generates detailed analytics every 50 episodes:
 │   └── metrics.py  # Analytics and reporting
 └── README.md
 ```
+
+## Requirements
+
+- Python 3.12+
+- PyTorch with CUDA support
+- Pygame
+- NumPy
+- Pandas (for analytics)
+- Plotly (for visualization)
 
 ## Future Improvements
 
