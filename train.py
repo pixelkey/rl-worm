@@ -12,7 +12,6 @@ import time
 from datetime import datetime, timedelta
 import sys
 from app import WormGame
-import torch.amp
 
 # Initialize pygame (headless mode)
 pygame.init()
@@ -55,10 +54,8 @@ class WormAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=100000)  # Increased from 50000
-        self.batch_size = 4096  # Increased from 2048 for faster learning
-        self.training_steps_per_update = 1  # Single efficient update
-        self.training_frequency = 1  # Train every step
+        self.memory = deque(maxlen=100000)
+        self.batch_size = 4096
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
@@ -66,11 +63,7 @@ class WormAgent:
         self.learning_rate = 0.001
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Initialize mixed precision scaler
-        self.scaler = torch.amp.GradScaler()
-        
         print(f"Using device: {self.device}")
-        
         if torch.cuda.is_available():
             print(f"GPU: {torch.cuda.get_device_name(0)}")
             print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
@@ -78,30 +71,29 @@ class WormAgent:
         self.model = self._build_model().to(self.device)
         self.target_model = self._build_model().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=True)
         
         # Try to load saved model
         self.load()
     
     def _build_model(self):
         return nn.Sequential(
-            nn.Linear(self.state_size, 512),  # Increased from 256
+            nn.Linear(self.state_size, 512),  
             nn.ReLU(),
-            nn.Dropout(0.1),  # Added dropout for regularization
-            nn.Linear(512, 512),  # Increased from 256
+            nn.Dropout(0.1),  
+            nn.Linear(512, 512),  
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(512, 256),  # Increased from 128
+            nn.Linear(512, 256),  
             nn.ReLU(),
             nn.Linear(256, self.action_size)
         )
     
     def remember(self, state, action, reward, next_state, done):
-        # Convert states to numpy arrays if they aren't already
+        # Ensure states are numpy arrays with correct dtype
         if not isinstance(state, np.ndarray):
-            state = np.array(state)
+            state = np.array(state, dtype=np.float32)
         if not isinstance(next_state, np.ndarray):
-            next_state = np.array(next_state)
+            next_state = np.array(next_state, dtype=np.float32)
         self.memory.append((state, action, reward, next_state, done))
     
     def act(self, state):
@@ -116,41 +108,39 @@ class WormAgent:
     def train(self):
         if len(self.memory) < self.batch_size:
             return
-            
-        # Sample batch all at once
-        indices = random.sample(range(len(self.memory)), self.batch_size)
-        batch = [self.memory[i] for i in indices]
         
-        # Stack tensors for better GPU utilization
-        states = torch.stack([torch.from_numpy(s[0]).float() for s in batch]).to(self.device)
-        actions = torch.tensor([s[1] for s in batch], dtype=torch.long, device=self.device)
-        rewards = torch.tensor([s[2] for s in batch], dtype=torch.float32, device=self.device)
-        next_states = torch.stack([torch.from_numpy(s[3]).float() for s in batch]).to(self.device)
-        dones = torch.tensor([s[4] for s in batch], dtype=torch.float32, device=self.device)
+        minibatch = random.sample(self.memory, self.batch_size)
         
-        # Enable mixed precision training
-        with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
-            # Compute all Q-values at once
-            current_q_values = self.model(states)
-            next_q_values = self.target_model(next_states)
-            
-            # Get Q-value for taken action
-            current_q = current_q_values.gather(1, actions.unsqueeze(1)).squeeze()
-            
-            # Compute target Q-value
-            with torch.no_grad():
-                next_q = next_q_values.max(1)[0]
-                target_q = rewards + (1 - dones) * self.gamma * next_q
-            
-            loss = nn.MSELoss()(current_q, target_q)
+        # Pre-allocate numpy arrays for batch processing
+        states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+        next_states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
         
-        # Optimizer steps with gradient scaling
-        self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-        self.scaler.scale(loss).backward()
-        self.scaler.unscale_(self.optimizer)
+        # Convert lists to numpy arrays first for faster tensor creation
+        for i, (state, _, _, next_state, _) in enumerate(minibatch):
+            states_array[i] = state
+            next_states_array[i] = next_state
+        
+        # Create tensors efficiently from numpy arrays
+        states = torch.from_numpy(states_array).float().to(self.device)
+        actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
+        rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
+        next_states = torch.from_numpy(next_states_array).float().to(self.device)
+        dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
+        
+        # Simple forward pass
+        current_q = self.model(states).gather(1, actions.unsqueeze(1))
+        with torch.no_grad():
+            next_q = self.target_model(next_states).max(1)[0]
+            target_q = rewards + (1 - dones) * self.gamma * next_q
+        
+        # Basic MSE loss
+        loss = nn.MSELoss()(current_q.squeeze(), target_q)
+        
+        # Standard optimization step
+        self.optimizer.zero_grad()
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        self.optimizer.step()
         
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
@@ -166,7 +156,6 @@ class WormAgent:
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scaler_state_dict': self.scaler.state_dict(),
             'epsilon': self.epsilon,
             'state_size': self.state_size
         }, model_path)
@@ -175,12 +164,10 @@ class WormAgent:
     def load(self):
         try:
             model_path = 'models/saved/worm_model.pth'
-            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
+            checkpoint = torch.load(model_path, map_location=self.device)
             if checkpoint['state_size'] == self.state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                if 'scaler_state_dict' in checkpoint:
-                    self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
                 self.epsilon = checkpoint['epsilon']
                 print(f"Loaded training state. Epsilon: {self.epsilon:.4f}")
             else:
@@ -199,13 +186,17 @@ def fast_training():
     start_time = time.time()
     
     # Initialize agent and analytics
-    STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
-    ACTION_SIZE = 9  # 8 directions + no movement
+    STATE_SIZE = 14
+    ACTION_SIZE = 9
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
     steps_per_episode = MIN_STEPS
     last_time = time.time()
+    
+    # Pre-allocate numpy arrays for batch processing
+    states_array = np.zeros((agent.batch_size, STATE_SIZE), dtype=np.float32)
+    next_states_array = np.zeros((agent.batch_size, STATE_SIZE), dtype=np.float32)
     
     try:
         for episode in range(TRAINING_EPISODES):
@@ -251,7 +242,7 @@ def fast_training():
                 agent.remember(state, action, reward, next_state, done)
                 
                 train_start = time.time()
-                if step % agent.training_frequency == 0 and len(agent.memory) >= agent.batch_size:
+                if len(agent.memory) >= agent.batch_size and step % 4 == 0:
                     loss = agent.train()
                 training_time += time.time() - train_start
                 
@@ -269,7 +260,7 @@ def fast_training():
                     break
             
             # Calculate metrics
-            exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  # Assuming we want to explore 25% of possible positions
+            exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
             
             # Update analytics
             metrics = {
