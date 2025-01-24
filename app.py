@@ -180,16 +180,17 @@ class WormGame:
         self.height = self.game_height
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 50.0  # Increased from 10.0
-        self.REWARD_FOOD_HUNGER_SCALE = 3.0  # Increased from 2.0
-        self.REWARD_GROWTH = 15.0  # Increased from 8.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.1  # Decreased from 0.2
-        self.REWARD_EXPLORATION = 0.01  # Decreased from 0.05
+        self.REWARD_FOOD_BASE = 100.0  # Doubled from 50.0
+        self.REWARD_FOOD_HUNGER_SCALE = 5.0  # Increased from 3.0
+        self.REWARD_GROWTH = 30.0  # Doubled from 15.0
+        self.REWARD_SMOOTH_MOVEMENT = 0.2  # Increased from 0.1
+        self.REWARD_EXPLORATION = 0.05  # Increased from 0.01
         
-        self.PENALTY_WALL = -5.0  # Increased from -2.0
-        self.PENALTY_SHARP_TURN = -1.0  # Decreased from -2.0
-        self.PENALTY_STARVATION_BASE = -0.2  # Increased from -0.1
-        self.PENALTY_DIRECTION_CHANGE = -0.2  # Decreased from -0.5
+        self.PENALTY_WALL = -10.0  # Stronger wall penalty to discourage wall-hugging
+        self.PENALTY_WALL_STAY = -5.0  # New penalty for staying near walls
+        self.PENALTY_SHARP_TURN = -0.5  # Reduced from -1.0
+        self.PENALTY_STARVATION_BASE = -0.1  # Reduced from -0.2
+        self.PENALTY_DIRECTION_CHANGE = -0.1  # Reduced from -0.2
         
         # Expression scaling
         self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
@@ -366,15 +367,19 @@ class WormGame:
         if new_head_x < margin:
             new_head_x = margin
             wall_collision = True
+            self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
         elif new_head_x > self.width - margin:
             new_head_x = self.width - margin
             wall_collision = True
+            self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
         if new_head_y < margin:
             new_head_y = margin
             wall_collision = True
+            self.angle = -self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
         elif new_head_y > self.height - margin:
             new_head_y = self.height - margin
             wall_collision = True
+            self.angle = -self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
             
         # Update head position
         self.positions[0] = (new_head_x, new_head_y)
@@ -466,6 +471,11 @@ class WormGame:
         # Wall collision penalty
         if wall_collision:
             reward += self.PENALTY_WALL
+            # Add extra penalty if too close to walls
+            wall_dist = min(new_head_x - margin, self.width - margin - new_head_x,
+                          new_head_y - margin, self.height - margin - new_head_y)
+            if wall_dist < self.head_size * 2:
+                reward += self.PENALTY_WALL_STAY
             self.expression = max(-1.0, self.PENALTY_WALL / self.EXPRESSION_SCALE)
             self.expression_time = time.time()
         
