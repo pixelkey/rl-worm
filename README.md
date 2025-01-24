@@ -18,8 +18,7 @@ source venv/bin/activate
 
 2. **Install dependencies**:
 ```bash
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118  # For CUDA support
-pip install pygame numpy matplotlib pandas plotly seaborn
+pip install -r requirements.txt
 ```
 
 3. **Create required directories**:
@@ -68,6 +67,31 @@ The worm learns through a sophisticated reward system:
 3. **Wall Avoidance**: -2.0 penalty for wall collisions
 4. **Anti-Stagnation**: Penalties for staying in one area
 5. **Corner Avoidance**: Quadratic penalty based on distance from center
+
+### Maslow-Inspired Reward Hierarchy
+
+The worm's reward system is inspired by Maslow's Hierarchy of Needs, creating natural and prioritized behavior patterns:
+
+1. **Basic Survival (Highest Priority)**
+   - Food when starving (~18.0 reward): Critical survival need
+   - Wall collision avoidance (-1.0 penalty): Basic safety
+   - Sharp turn prevention (-0.5 penalty): Physical well-being
+
+2. **Safety & Comfort**
+   - Maintaining food reserves: Reward scales with hunger
+   - Smooth movement patterns: Small penalties for jerky motion
+   - Safe distance from walls: Implicit in exploration patterns
+
+3. **Growth & Development**
+   - Growing longer (+5.0 reward): Physical development
+   - Food when well-fed (+5.0 reward): Building reserves
+
+4. **Self-Actualization**
+   - Exploration of new areas (0.1 reward): Learning and discovery
+   - Optimizing movement patterns: Emergent behavior
+   - Finding efficient foraging strategies: Complex learning
+
+This hierarchical reward structure ensures the worm prioritizes survival needs before pursuing higher-level objectives, much like Maslow's hierarchy in human psychology. When basic needs are met (well-fed and safe), the worm naturally progresses to exploration and optimization behaviors.
 
 ## Training Process
 
