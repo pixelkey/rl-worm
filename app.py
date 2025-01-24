@@ -126,8 +126,8 @@ class WormGame:
         # Movement properties
         self.angle = 0  # Current angle
         self.target_angle = 0  # Target angle
-        self.angular_speed = 0.1  # How fast we can turn (reduced from 0.15)
-        self.speed = 5.0  # Movement speed
+        self.angular_speed = 0.05  # Reduced from 0.1 for smoother turning
+        self.speed = 4.0  # Slightly reduced from 5.0
         self.prev_action = 4  # Previous action (start with no movement)
         
         # Worm properties - scale with game area
@@ -180,12 +180,13 @@ class WormGame:
         self.REWARD_FOOD_BASE = 10.0
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 8.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.1
+        self.REWARD_SMOOTH_MOVEMENT = 0.2  # Increased from 0.1
         self.REWARD_EXPLORATION = 0.05
         
         self.PENALTY_WALL = -2.0
-        self.PENALTY_SHARP_TURN = -1.0
+        self.PENALTY_SHARP_TURN = -2.0  # Increased penalty for sharp turns
         self.PENALTY_STARVATION_BASE = -0.1
+        self.PENALTY_DIRECTION_CHANGE = -0.5  # New penalty for changing direction
         
         # Expression scaling
         self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
@@ -372,24 +373,30 @@ class WormGame:
             self.expression = wall_penalty / self.EXPRESSION_SCALE
             self.expression_time = time.time()
             
-        # Smoother movement rewards
-        action_diff = abs(action - self.prev_action)
-        if action_diff > 4:  # If turning more than 180 degrees
-            action_diff = 8 - action_diff  # Use smaller angle
-        if action_diff > 2:  # Penalize turns sharper than 90 degrees
-            turn_penalty = self.PENALTY_SHARP_TURN  # Increased penalty for sharp turns
-            reward += turn_penalty
-            # Scale expression with turn penalty (-1.0 penalty → -0.4 expression)
-            self.expression = turn_penalty / self.EXPRESSION_SCALE
+        # Calculate angle change and apply penalties/rewards for movement
+        angle_change = abs(self.target_angle - self.angle)
+        if angle_change > math.pi:
+            angle_change = 2 * math.pi - angle_change
+            
+        # Sharp turn penalty
+        if angle_change > math.pi / 4:  # More than 45 degrees
+            reward += self.PENALTY_SHARP_TURN * (angle_change / math.pi)
+            self.expression = max(-1.0, self.PENALTY_SHARP_TURN / self.EXPRESSION_SCALE)
             self.expression_time = time.time()
-        else:
-            # Small reward for smooth movement
-            smooth_reward = self.REWARD_SMOOTH_MOVEMENT * (1 - action_diff/2)  # Max 0.1 when moving straight
-            reward += smooth_reward
-            # Tiny smile for smooth movement (0.1 reward → 0.04 expression)
-            if smooth_reward > 0:
-                self.expression = smooth_reward / self.EXPRESSION_SCALE
-                self.expression_time = time.time()
+            
+        # Direction change penalty
+        if action != self.prev_action and action != 4:  # If changed direction and not stopping
+            reward += self.PENALTY_DIRECTION_CHANGE
+            
+        # Smooth movement reward
+        if angle_change < math.pi / 8:  # Less than 22.5 degrees
+            reward += self.REWARD_SMOOTH_MOVEMENT
+            
+        # Wall collision penalty
+        if wall_collision:
+            reward += self.PENALTY_WALL
+            self.expression = max(-1.0, self.PENALTY_WALL / self.EXPRESSION_SCALE)
+            self.expression_time = time.time()
         
         # 3. Growth and Self-Actualization - Third Priority
         # Only give growth rewards when basic needs are met

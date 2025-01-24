@@ -97,6 +97,11 @@ class WormAgent:
         )
     
     def remember(self, state, action, reward, next_state, done):
+        # Convert states to numpy arrays if they aren't already
+        if not isinstance(state, np.ndarray):
+            state = np.array(state)
+        if not isinstance(next_state, np.ndarray):
+            next_state = np.array(next_state)
         self.memory.append((state, action, reward, next_state, done))
     
     def act(self, state):
@@ -116,25 +121,31 @@ class WormAgent:
         indices = random.sample(range(len(self.memory)), self.batch_size)
         batch = [self.memory[i] for i in indices]
         
-        # Convert to tensors efficiently
-        states = torch.tensor([s[0] for s in batch], dtype=torch.float32, device=self.device)
+        # Stack tensors for better GPU utilization
+        states = torch.stack([torch.from_numpy(s[0]).float() for s in batch]).to(self.device)
         actions = torch.tensor([s[1] for s in batch], dtype=torch.long, device=self.device)
         rewards = torch.tensor([s[2] for s in batch], dtype=torch.float32, device=self.device)
-        next_states = torch.tensor([s[3] for s in batch], dtype=torch.float32, device=self.device)
+        next_states = torch.stack([torch.from_numpy(s[3]).float() for s in batch]).to(self.device)
         dones = torch.tensor([s[4] for s in batch], dtype=torch.float32, device=self.device)
         
         # Enable mixed precision training
         with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
-            current_q = self.model(states).gather(1, actions.unsqueeze(1))
+            # Compute all Q-values at once
+            current_q_values = self.model(states)
+            next_q_values = self.target_model(next_states)
             
+            # Get Q-value for taken action
+            current_q = current_q_values.gather(1, actions.unsqueeze(1)).squeeze()
+            
+            # Compute target Q-value
             with torch.no_grad():
-                next_q = self.target_model(next_states).max(1)[0]
+                next_q = next_q_values.max(1)[0]
                 target_q = rewards + (1 - dones) * self.gamma * next_q
             
-            loss = nn.MSELoss()(current_q.squeeze(), target_q)
+            loss = nn.MSELoss()(current_q, target_q)
         
         # Optimizer steps with gradient scaling
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
         self.scaler.scale(loss).backward()
         self.scaler.unscale_(self.optimizer)
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
