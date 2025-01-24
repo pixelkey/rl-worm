@@ -174,6 +174,8 @@ class WormGame:
         for i in range(self.max_segments):
             green_val = int(150 - (100 * i / self.max_segments))
             self.body_colors.append((70, green_val + 30, 20))
+        self.wall_color = (100, 100, 100)  # Gray for walls
+        self.spike_color = (70, 70, 70)   # Darker gray for spikes
         
         # Game boundaries (use game area dimensions)
         self.width = self.game_width
@@ -495,24 +497,76 @@ class WormGame:
         
     def draw(self, surface=None):
         """Draw the game state"""
-        if surface is None and not self.headless:
+        if self.headless:
+            return
+            
+        if surface is None:
             surface = pygame.display.get_surface()
             
-        # Clear game surface with a dark background
-        if not self.headless:
-            self.game_surface.fill((30, 30, 30))  # Darker background
-            
-            # Draw grid lines for visual reference
-            grid_spacing = self.game_height // 10
-            for i in range(0, self.game_width + grid_spacing, grid_spacing):
-                pygame.draw.line(self.game_surface, (40, 40, 40), (i, 0), (i, self.game_height))
-            for i in range(0, self.game_height + grid_spacing, grid_spacing):
-                pygame.draw.line(self.game_surface, (40, 40, 40), (0, i), (self.game_width, i))
+        # Clear game surface with dark background
+        self.game_surface.fill((30, 30, 30))
+        
+        # Draw rocky walls
+        wall_color = (70, 70, 70)  # Dark gray
+        wall_points = 30  # Points per wall
+        jitter = self.head_size // 2  # Max random offset
+        
+        # Generate random jagged points for each wall
+        def get_wall_points(start, end, count, inward=True):
+            points = []
+            for i in range(count):
+                t = i / (count - 1)  # Parameter from 0 to 1
+                # Linear interpolation between start and end
+                base_x = start[0] + t * (end[0] - start[0])
+                base_y = start[1] + t * (end[1] - start[1])
+                # Add random jitter inward
+                if inward:
+                    if start[0] == end[0]:  # Vertical wall
+                        if start[0] == 0:  # Left wall
+                            jit_x = random.randint(0, jitter)
+                        else:  # Right wall
+                            jit_x = random.randint(-jitter, 0)
+                        jit_y = random.randint(-jitter//2, jitter//2)
+                    else:  # Horizontal wall
+                        if start[1] == 0:  # Top wall
+                            jit_y = random.randint(0, jitter)
+                        else:  # Bottom wall
+                            jit_y = random.randint(-jitter, 0)
+                        jit_x = random.randint(-jitter//2, jitter//2)
+                    points.append((base_x + jit_x, base_y + jit_y))
+                else:
+                    points.append((base_x, base_y))
+            return points
+        
+        # Draw each wall
+        margin = self.head_size
+        
+        # Left wall
+        left_wall = get_wall_points((margin, margin), (margin, self.height-margin), wall_points)
+        pygame.draw.lines(self.game_surface, wall_color, False, left_wall, 3)
+        
+        # Right wall
+        right_wall = get_wall_points((self.width-margin, margin), (self.width-margin, self.height-margin), wall_points)
+        pygame.draw.lines(self.game_surface, wall_color, False, right_wall, 3)
+        
+        # Top wall
+        top_wall = get_wall_points((margin, margin), (self.width-margin, margin), wall_points)
+        pygame.draw.lines(self.game_surface, wall_color, False, top_wall, 3)
+        
+        # Bottom wall
+        bottom_wall = get_wall_points((margin, self.height-margin), (self.width-margin, self.height-margin), wall_points)
+        pygame.draw.lines(self.game_surface, wall_color, False, bottom_wall, 3)
+        
+        # Draw grid lines for visual reference
+        grid_spacing = self.game_height // 10
+        for i in range(0, self.game_width + grid_spacing, grid_spacing):
+            pygame.draw.line(self.game_surface, (40, 40, 40), (i, 0), (i, self.game_height))
+        for i in range(0, self.game_height + grid_spacing, grid_spacing):
+            pygame.draw.line(self.game_surface, (40, 40, 40), (0, i), (self.game_width, i))
         
         # Draw plants
         for plant in self.plants:
-            if not self.headless:
-                plant.draw(self.game_surface)
+            plant.draw(self.game_surface)
         
         # Draw worm segments from tail to head
         for i in range(len(self.positions)-1, 0, -1):
@@ -525,8 +579,7 @@ class WormGame:
             angle = math.atan2(dy, dx)
             
             # Draw segment
-            if not self.headless:
-                self._draw_segment(pos, angle, self.segment_width, self.body_colors[i])
+            self._draw_segment(pos, angle, self.segment_width, self.body_colors[i])
         
         # Draw head (first segment)
         head_pos = self.positions[0]
@@ -539,58 +592,54 @@ class WormGame:
             head_angle = self.angle
             
         # Draw head with slightly different appearance
-        if not self.headless:
-            self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, self.head_color, True)
+        self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, self.head_color, True)
         
         # Draw hunger meter
-        if not self.headless:
-            meter_width = self.game_width // 4
-            meter_height = self.game_height // 20
-            meter_x = self.game_width // 20
-            meter_y = self.game_height // 20
-            border_color = (200, 200, 200)
-            
-            # Calculate fill color based on hunger
-            hunger_ratio = self.hunger / self.max_hunger
-            if hunger_ratio > 0.6:
-                fill_color = (0, 255, 0)  # Green when full
-            elif hunger_ratio > 0.3:
-                fill_color = (255, 255, 0)  # Yellow when half
-            else:
-                fill_color = (255, 0, 0)  # Red when low
-            
-            # Draw border
-            pygame.draw.rect(self.game_surface, border_color, 
-                           (meter_x, meter_y, meter_width, meter_height), 2)
-            
-            # Draw fill
-            fill_width = max(0, min(meter_width-4, int((meter_width-4) * hunger_ratio)))
-            pygame.draw.rect(self.game_surface, fill_color,
-                           (meter_x+2, meter_y+2, fill_width, meter_height-4))
-            
-            # Draw length indicator
-            length_text = f"Length: {self.num_segments}"
-            font = pygame.font.Font(None, self.game_height // 20)
-            text_surface = font.render(length_text, True, (200, 200, 200))
-            text_rect = text_surface.get_rect()
-            text_rect.topleft = (meter_x, meter_y + meter_height + 5)
-            self.game_surface.blit(text_surface, text_rect)
+        meter_width = self.game_width // 4
+        meter_height = self.game_height // 20
+        meter_x = self.game_width // 20
+        meter_y = self.game_height // 20
+        border_color = (200, 200, 200)
+        
+        # Calculate fill color based on hunger
+        hunger_ratio = self.hunger / self.max_hunger
+        if hunger_ratio > 0.6:
+            fill_color = (0, 255, 0)  # Green when full
+        elif hunger_ratio > 0.3:
+            fill_color = (255, 255, 0)  # Yellow when half
+        else:
+            fill_color = (255, 0, 0)  # Red when low
+        
+        # Draw border
+        pygame.draw.rect(self.game_surface, border_color, 
+                       (meter_x, meter_y, meter_width, meter_height), 2)
+        
+        # Draw fill
+        fill_width = max(0, min(meter_width-4, int((meter_width-4) * hunger_ratio)))
+        pygame.draw.rect(self.game_surface, fill_color,
+                       (meter_x+2, meter_y+2, fill_width, meter_height-4))
+        
+        # Draw length indicator
+        length_text = f"Length: {self.num_segments}"
+        font = pygame.font.Font(None, self.game_height // 20)
+        text_surface = font.render(length_text, True, (200, 200, 200))
+        text_rect = text_surface.get_rect()
+        text_rect.topleft = (meter_x, meter_y + meter_height + 5)
+        self.game_surface.blit(text_surface, text_rect)
         
         # Draw game area border
-        if not self.headless:
-            # Clear screen
-            surface.fill((20, 20, 20))
-            
-            # Draw game surface onto main screen with offset
-            surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
-            
-            # Draw border around game area
-            pygame.draw.rect(surface, (100, 100, 100), 
-                           (self.game_x_offset-2, self.game_y_offset-2, 
-                            self.game_width+4, self.game_height+4), 2)
+        # Clear screen
+        surface.fill((20, 20, 20))
         
-        if not self.headless:
-            pygame.display.flip()
+        # Draw game surface onto main screen with offset
+        surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
+        
+        # Draw border around game area
+        pygame.draw.rect(surface, (100, 100, 100), 
+                       (self.game_x_offset-2, self.game_y_offset-2, 
+                        self.game_width+4, self.game_height+4), 2)
+        
+        pygame.display.flip()
     
     def _draw_segment(self, pos, angle, width, color, is_head=False):
         """Draw a single body segment"""
