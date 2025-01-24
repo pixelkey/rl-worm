@@ -69,6 +69,45 @@ The worm learns through a sophisticated reward system:
 4. **Anti-Stagnation**: Penalties for staying in one area
 5. **Corner Avoidance**: Quadratic penalty based on distance from center
 
+## Maslow's Hierarchy in AI Behavior
+
+The worm's behavior and learning is guided by a reward system based on Maslow's Hierarchy of Needs, creating more realistic and human-like behavior patterns:
+
+### 1. Physiological Needs (Survival)
+- **Food & Hunger**: Primary survival drive
+  - Exponential rewards (10-30) for eating based on hunger level
+  - Severe starvation penalties:
+    - -0.1 at 50% hunger (mild discomfort)
+    - -0.4 at 25% hunger (increasing distress)
+    - -2.25 at 10% hunger (severe penalty)
+    - -25.0 at 1% hunger (critical survival state)
+  - Emotional expressions show distress when starving
+
+### 2. Safety Needs
+- **Collision Avoidance**: -2.0 penalty for wall collisions
+- **Movement Safety**: 
+  - Penalties up to -1.0 for sharp turns
+  - Small rewards (0.1) for smooth, stable movement
+  - Expressions reflect distress during unsafe behavior
+
+### 3. Growth & Self-Actualization
+- **Growth Rewards**: +8.0 for growing longer
+- Only available when basic needs are met (>50% hunger)
+- Enhanced happiness expressions when growing while healthy
+
+### 4. Exploration & Discovery
+- Small rewards (0.05) for movement and exploration
+- Only activated when well-fed (>80% hunger)
+- Encourages curiosity once basic needs are satisfied
+
+This hierarchical reward structure ensures the worm:
+1. Prioritizes survival above all else
+2. Develops safe movement patterns
+3. Pursues growth only when healthy
+4. Explores its environment when comfortable
+
+The worm's facial expressions provide visual feedback of its current state in the hierarchy, from distress when starving to contentment during healthy growth.
+
 ## Training Process
 
 The training uses several advanced DRL techniques:
