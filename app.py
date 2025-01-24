@@ -184,8 +184,8 @@ class WormGame:
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
         self.wall_color = (70, 70, 70)  # Dark gray
-        margin = self.head_size
-        base_jitter = self.head_size * 0.8  # Base jitter amount
+        margin = int(self.head_size * 0.4)  # Reduced margin to 40% of original
+        base_jitter = self.head_size * 0.4  # Halved from 0.8 to 0.4
         
         def get_jagged_wall_points(start, end, num_points):
             points = []
@@ -202,7 +202,7 @@ class WormGame:
                 
                 # Calculate jitter based on position
                 # More jitter in middle, less at corners
-                edge_factor = min(t, 1-t) * 4  # Reduces jitter near corners
+                edge_factor = min(t, 1-t) * 3  # Reduced from 4 to 3 for smoother transitions
                 jitter_scale = base_jitter * (0.5 + edge_factor)
                 
                 # Add random jitter inward
@@ -212,23 +212,37 @@ class WormGame:
                     else:  # Right wall
                         jit_x = -random.random() * jitter_scale
                     # Add some vertical displacement for more jaggedness
-                    jit_y = (random.random() - 0.5) * jitter_scale * 0.5
+                    jit_y = (random.random() - 0.5) * jitter_scale * 0.25  # Reduced from 0.5 to 0.25
                 else:
                     if start[1] == margin:  # Top wall
                         jit_y = random.random() * jitter_scale
                     else:  # Bottom wall
                         jit_y = -random.random() * jitter_scale
                     # Add some horizontal displacement for more jaggedness
-                    jit_x = (random.random() - 0.5) * jitter_scale * 0.5
+                    jit_x = (random.random() - 0.5) * jitter_scale * 0.25  # Reduced from 0.5 to 0.25
                 
-                # Add sharp spikes randomly
-                if random.random() < 0.2:  # 20% chance of spike
+                # Add sharp spikes randomly (reduced frequency and intensity)
+                if random.random() < 0.1:  # Reduced from 0.2 to 0.1 (10% chance)
                     if is_vertical:
-                        jit_x *= 2.0
+                        jit_x *= 1.5  # Reduced from 2.0 to 1.5
                     else:
-                        jit_y *= 2.0
+                        jit_y *= 1.5  # Reduced from 2.0 to 1.5
                 
-                points.append((base_x + jit_x, base_y + jit_y))
+                # Ensure points don't go outside the frame
+                if is_vertical:
+                    if start[0] == margin:  # Left wall
+                        base_x = max(2, base_x + jit_x)  # Keep 2 pixels from edge
+                    else:  # Right wall
+                        base_x = min(self.width - 2, base_x + jit_x)
+                    base_y = base_y + jit_y
+                else:
+                    if start[1] == margin:  # Top wall
+                        base_y = max(2, base_y + jit_y)
+                    else:  # Bottom wall
+                        base_y = min(self.height - 2, base_y + jit_y)
+                    base_x = base_x + jit_x
+                
+                points.append((base_x, base_y))
             
             # Add intermediate points for smoother jagged edges
             smoothed_points = []
