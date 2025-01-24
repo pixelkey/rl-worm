@@ -164,7 +164,7 @@ class WormAgent:
     def load(self):
         try:
             model_path = 'models/saved/worm_model.pth'
-            checkpoint = torch.load(model_path, map_location=self.device)
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)
             if checkpoint['state_size'] == self.state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -269,7 +269,7 @@ def fast_training():
                 'epsilon': agent.epsilon
             }
             
-            analytics.update(metrics)
+            analytics.update_metrics(episode, metrics)
             
             # Save model periodically
             if episode % SAVE_INTERVAL == 0:
