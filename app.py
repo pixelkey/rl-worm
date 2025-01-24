@@ -180,14 +180,22 @@ class WormGame:
         """Update hunger and return whether worm is still alive"""
         self.hunger = max(0, self.hunger - self.hunger_rate)
         
-        # Shrink if very hungry
-        if self.hunger < self.max_hunger * 0.2 and self.num_segments > self.min_segments:
-            if random.random() < 0.01:  # 1% chance per frame when hungry
+        # Calculate shrinking probability based on hunger level
+        hunger_ratio = self.hunger / self.max_hunger
+        if hunger_ratio < 0.5:  # Start shrinking below 50% hunger
+            # Shrinking probability increases as hunger decreases
+            # At 50% hunger: 0.1% chance per frame
+            # At 0% hunger: 5% chance per frame
+            shrink_probability = 0.05 * (1 - (hunger_ratio * 2))
+            
+            if self.num_segments > self.min_segments and random.random() < shrink_probability:
                 self.num_segments -= 1
-                self.positions.pop()  # Remove last segment
-                self.body_colors.pop()  # Remove its color
+                if len(self.positions) > self.num_segments:
+                    self.positions.pop()  # Remove last segment
+                    self.body_colors.pop()  # Remove its color
         
-        return self.hunger > 0 and self.num_segments >= self.min_segments
+        # Die if no segments left or hunger is zero
+        return self.hunger > 0 and self.num_segments > 0
         
     def step(self, action):
         """Execute one time step within the environment"""
@@ -272,9 +280,11 @@ class WormGame:
         if wall_collision:
             reward -= 1.0
         
-        # Penalty for shrinking
+        # Penalty for shrinking (more severe as we get shorter)
         if self.num_segments < len(self.positions) - 1:  # If we shrunk
-            reward -= 2.0
+            # Penalty increases as we get shorter
+            length_ratio = self.num_segments / self.max_segments
+            reward -= 2.0 * (1 + (1 - length_ratio))  # Penalty ranges from 2 to 4
         
         # Small reward for moving towards closest plant, bigger when hungry
         closest_plant = None
@@ -292,9 +302,10 @@ class WormGame:
                 hunger_ratio = 1 - (self.hunger / self.max_hunger)
                 reward += 0.2 * (1 + hunger_ratio)  # Reward ranges from 0.2 to 0.4 based on hunger
         
-        # Small penalty for being very hungry
-        if self.hunger < self.max_hunger * 0.2:  # Less than 20% hunger
-            reward -= 0.1
+        # Penalty for being very hungry (increases as hunger decreases)
+        if self.hunger < self.max_hunger * 0.5:  # Below 50% hunger
+            hunger_ratio = self.hunger / self.max_hunger
+            reward -= 0.2 * (1 - hunger_ratio)  # Penalty ranges from 0 to 0.2
         
         # Get state and additional info
         state = self._get_state()
@@ -490,6 +501,12 @@ class WormGame:
         self.num_segments = 20
         self.positions = [(self.x, self.y) for _ in range(self.num_segments)]
         
+        # Reset colors
+        self.body_colors = []
+        for i in range(self.num_segments):
+            green_val = int(150 - (100 * i / (self.max_segments - 1)))
+            self.body_colors.append((70, green_val + 30, 20))
+        
         # Reset hunger
         self.hunger = self.max_hunger
         
@@ -505,14 +522,22 @@ class WormGame:
         """Update hunger and return whether worm is still alive"""
         self.hunger = max(0, self.hunger - self.hunger_rate)
         
-        # Shrink if very hungry
-        if self.hunger < self.max_hunger * 0.2 and self.num_segments > self.min_segments:
-            if random.random() < 0.01:  # 1% chance per frame when hungry
+        # Calculate shrinking probability based on hunger level
+        hunger_ratio = self.hunger / self.max_hunger
+        if hunger_ratio < 0.5:  # Start shrinking below 50% hunger
+            # Shrinking probability increases as hunger decreases
+            # At 50% hunger: 0.1% chance per frame
+            # At 0% hunger: 5% chance per frame
+            shrink_probability = 0.05 * (1 - (hunger_ratio * 2))
+            
+            if self.num_segments > self.min_segments and random.random() < shrink_probability:
                 self.num_segments -= 1
-                self.positions.pop()  # Remove last segment
-                self.body_colors.pop()  # Remove its color
+                if len(self.positions) > self.num_segments:
+                    self.positions.pop()  # Remove last segment
+                    self.body_colors.pop()  # Remove its color
         
-        return self.hunger > 0 and self.num_segments >= self.min_segments
+        # Die if no segments left or hunger is zero
+        return self.hunger > 0 and self.num_segments > 0
         
 class WormAgent:
     def __init__(self, state_size, action_size):
