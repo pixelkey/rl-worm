@@ -605,22 +605,23 @@ while running:
         # Update target network periodically
         if steps_in_episode % 100 == 0:
             agent.update_target_model()
-            
+                
     # Draw everything
     game.draw()
     
     # Update display
     pygame.display.flip()
     
-    if done:
-        print("Game Over! Resetting...")
-        game.reset()
-        
     # Increment steps
     steps_in_episode += 1
     
-    # Check if episode should end
-    if steps_in_episode >= MAX_STEPS:
+    # Check if episode should end (either by game over or max steps)
+    if done or steps_in_episode >= MAX_STEPS:
+        if done:
+            print("Game Over! Starting new episode...")
+        else:
+            print(f"Episode {episode} completed with {steps_in_episode} steps")
+        
         # Save the model state every 5 episodes
         if episode % 5 == 0:
             agent.save(episode)
@@ -640,5 +641,10 @@ while running:
         wall_collisions = 0
         total_distance = 0
         game.reset()
+        continue
+        
+    # Track position for analytics
+    if len(positions_history) < MAX_STEPS:
+        positions_history.append((game.x, game.y))
 
 pygame.quit()
