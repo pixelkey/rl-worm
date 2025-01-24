@@ -161,102 +161,97 @@ def fast_training():
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
-    # Training metrics
-    training_metrics = {
-        'episode': [],
-        'avg_reward': [],
-        'plants_eaten': [],
-        'survival_time': [],
-        'exploration_ratio': [],
-        'epsilon': []
-    }
-    
-    recent_rewards = []  # Keep track of last 50 episodes
-    
-    for episode in range(TRAINING_EPISODES):
-        # Initialize game state
-        game = WormGame()
-        state = game.reset()
-        total_reward = 0
-        plants_eaten = 0
-        steps_survived = 0
-        episode_positions = set()
-        
-        for step in range(STEPS_PER_EPISODE):
-            # Get action and update game
-            action = agent.act(state)
-            next_state, info = game.step(action)
+    try:
+        for episode in range(TRAINING_EPISODES):
+            # Initialize game state
+            game = WormGame(headless=True)
+            state = game.reset()
+            total_reward = 0
+            plants_eaten = 0
+            steps_survived = 0
+            episode_positions = set()
+            wall_collisions = 0
             
-            # Track metrics
-            if info['ate_plant']:
-                plants_eaten += 1
-            
-            # Track visited positions
-            head_pos = (int(game.x/50), int(game.y/50))
-            episode_positions.add(head_pos)
-            
-            # Get reward from game
-            reward = info.get('reward', 0)
-            done = not info['alive']
-            
-            # Store experience
-            agent.remember(state, action, reward, next_state, done)
-            
-            # Train the agent
-            loss = agent.train()
-            
-            if done:
-                break
+            for step in range(STEPS_PER_EPISODE):
+                # Get action and update game
+                action = agent.act(state)
+                next_state, info = game.step(action)
                 
-            state = next_state
-            total_reward += reward
-            steps_survived += 1
+                # Track metrics
+                if info['ate_plant']:
+                    plants_eaten += 1
+                if info['wall_collision']:
+                    wall_collisions += 1
+                
+                # Track visited positions
+                head_pos = game.positions[-1]
+                grid_pos = (int(head_pos[0]/50), int(head_pos[1]/50))
+                episode_positions.add(grid_pos)
+                
+                # Get reward from game
+                reward = info.get('reward', 0)
+                done = not info['alive']
+                
+                # Store experience
+                agent.remember(state, action, reward, next_state, done)
+                
+                # Train the agent
+                loss = agent.train()
+                
+                if done:
+                    break
+                    
+                state = next_state
+                total_reward += reward
+                steps_survived += 1
+                
+                # Update target network periodically
+                if step % 1000 == 0:
+                    agent.update_target_model()
             
-            # Update target network periodically
-            if step % 1000 == 0:
-                agent.update_target_model()
-        
-        # Update recent rewards
-        recent_rewards.append(total_reward)
-        if len(recent_rewards) > 50:
-            recent_rewards.pop(0)
-        avg_reward = np.mean(recent_rewards)
-        
-        # Update analytics
-        exploration_ratio = len(episode_positions) / ((game.width//50) * (game.height//50))
-        training_metrics['episode'].append(episode)
-        training_metrics['avg_reward'].append(avg_reward)
-        training_metrics['plants_eaten'].append(plants_eaten)
-        training_metrics['survival_time'].append(steps_survived)
-        training_metrics['exploration_ratio'].append(exploration_ratio)
-        training_metrics['epsilon'].append(agent.epsilon)
-        
-        # Save model periodically
-        if episode % SAVE_INTERVAL == 0:
-            agent.save(episode)
-            analytics.plot_training_metrics(training_metrics)
-        
-        # Update progress bar and print metrics
-        progress.update(episode + 1)
-        
-        if episode % PRINT_INTERVAL == 0:
-            print(f"\nEpisode {episode}")
-            print(f"Total Reward: {total_reward:.2f}")
-            print(f"Average Reward (last 50): {avg_reward:.2f}")
-            print(f"Plants Eaten: {plants_eaten}")
-            print(f"Steps Survived: {steps_survived}")
-            print(f"Exploration Ratio: {exploration_ratio:.2f}")
-            print(f"Epsilon: {agent.epsilon:.3f}")
-            print(f"Loss: {loss if loss is not None else 'N/A'}")
+            # Calculate metrics
+            exploration_ratio = len(episode_positions) / ((game.width//50) * (game.height//50))
+            metrics_data = {
+                'avg_reward': total_reward,
+                'wall_collisions': wall_collisions,
+                'exploration_ratio': exploration_ratio,
+                'movement_smoothness': steps_survived / STEPS_PER_EPISODE,
+                'epsilon': agent.epsilon
+            }
             
+            # Update analytics
+            analytics.update_metrics(episode, metrics_data)
+            
+            # Save model periodically
+            if episode % SAVE_INTERVAL == 0:
+                agent.save(episode)
+                analytics.generate_report(episode)
+            
+            # Update progress bar
+            progress.update(episode + 1)
+            
+            # Print metrics periodically
+            if episode % PRINT_INTERVAL == 0:
+                print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
+                print(f"Steps: {steps_survived}/{STEPS_PER_EPISODE}")
+                print(f"Reward: {total_reward:.2f}")
+                print(f"Plants: {plants_eaten}")
+                print(f"Explore: {exploration_ratio:.2f}")
+                print(f"Epsilon: {agent.epsilon:.3f}")
+                
+    except KeyboardInterrupt:
+        print("\nTraining interrupted! Saving progress...")
+        agent.save(episode)
+        analytics.generate_report(episode)
+        
     print("\nTraining finished!")
     agent.save(TRAINING_EPISODES)
-    analytics.plot_training_metrics(training_metrics)
+    analytics.generate_report(TRAINING_EPISODES)
 
 if __name__ == "__main__":
     try:
         fast_training()
     except KeyboardInterrupt:
         print("\nTraining interrupted by user. Saving progress...")
-        analytics.plot_training_metrics(training_metrics)
+        analytics.generate_report(episode)
         print("Progress saved. Exiting...")

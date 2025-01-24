@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 import sys
 from analytics.metrics import WormAnalytics
+import os
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -68,17 +69,23 @@ class Plant:
         pygame.draw.circle(surface, self.color, (self.x, self.y + current_size), current_size)
 
 class WormGame:
-    def __init__(self):
+    def __init__(self, headless=False):
+        if headless:
+            os.environ["SDL_VIDEODRIVER"] = "dummy"
         pygame.init()
         
-        # Initialize display info
-        display_info = pygame.display.Info()
-        self.screen_width = min(800, display_info.current_w - 100)
-        self.screen_height = min(600, display_info.current_h - 100)
+        # Set fixed dimensions for game area
+        self.screen_width = 800
+        self.screen_height = 600
+        self.headless = headless
         
-        # Create game surface and screen
-        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption("AI Worm" + (" (Demo Mode)" if args.demo else ""))
+        # Create game surface and screen only if not headless
+        if not headless:
+            self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+            pygame.display.set_caption("AI Worm" + (" (Demo Mode)" if args.demo else ""))
+        else:
+            pygame.display.set_mode((1, 1))  # Minimal display for headless mode
+            
         self.game_surface = pygame.Surface((self.screen_width, self.screen_height))
         
         # Game area offset
@@ -233,15 +240,17 @@ class WormGame:
         
     def draw(self, surface=None):
         """Draw the game state"""
-        if surface is None:
+        if surface is None and not self.headless:
             surface = pygame.display.get_surface()
             
         # Clear game surface
-        self.game_surface.fill((50, 50, 50))
+        if not self.headless:
+            self.game_surface.fill((50, 50, 50))
         
         # Draw plants
         for plant in self.plants:
-            plant.draw(self.game_surface)
+            if not self.headless:
+                plant.draw(self.game_surface)
         
         # Draw worm segments
         for i in range(1, len(self.positions)):
@@ -254,7 +263,8 @@ class WormGame:
             angle = math.atan2(dy, dx)
             
             # Draw segment
-            self._draw_segment(pos, angle, self.segment_width, self.body_colors[i-1])
+            if not self.headless:
+                self._draw_segment(pos, angle, self.segment_width, self.body_colors[i-1])
         
         # Draw head (last segment) with special handling
         head_pos = self.positions[-1]
@@ -267,36 +277,41 @@ class WormGame:
             head_angle = 0
             
         # Draw head with slightly different appearance
-        self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, (255, 100, 100), True)
+        if not self.headless:
+            self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, (255, 100, 100), True)
         
         # Draw hunger meter
-        meter_width = 200
-        meter_height = 20
-        meter_x = 10
-        meter_y = 10
-        border_color = (200, 200, 200)
-        
-        # Calculate fill color based on hunger
-        red = min(255, max(0, int(255 * (1 - self.hunger / self.max_hunger))))
-        green = min(255, max(0, int(255 * self.hunger / self.max_hunger)))
-        fill_color = (red, green, 0)
-        
-        # Draw border
-        pygame.draw.rect(self.game_surface, border_color, (meter_x, meter_y, meter_width, meter_height), 2)
-        
-        # Draw fill
-        fill_width = max(0, min(meter_width, int(meter_width * self.hunger / self.max_hunger)))
-        pygame.draw.rect(self.game_surface, fill_color, (meter_x, meter_y, fill_width, meter_height))
+        if not self.headless:
+            meter_width = 200
+            meter_height = 20
+            meter_x = 10
+            meter_y = 10
+            border_color = (200, 200, 200)
+            
+            # Calculate fill color based on hunger
+            red = min(255, max(0, int(255 * (1 - self.hunger / self.max_hunger))))
+            green = min(255, max(0, int(255 * self.hunger / self.max_hunger)))
+            fill_color = (red, green, 0)
+            
+            # Draw border
+            pygame.draw.rect(self.game_surface, border_color, (meter_x, meter_y, meter_width, meter_height), 2)
+            
+            # Draw fill
+            fill_width = max(0, min(meter_width, int(meter_width * self.hunger / self.max_hunger)))
+            pygame.draw.rect(self.game_surface, fill_color, (meter_x, meter_y, fill_width, meter_height))
         
         # Draw game surface to main surface
-        surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
+        if not self.headless:
+            surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
         
         # Draw border around game area
-        pygame.draw.rect(surface, (100, 100, 100), 
-                        (self.game_x_offset-2, self.game_y_offset-2, 
-                         self.screen_width+4, self.screen_height+4), 2)
+        if not self.headless:
+            pygame.draw.rect(surface, (100, 100, 100), 
+                            (self.game_x_offset-2, self.game_y_offset-2, 
+                             self.screen_width+4, self.screen_height+4), 2)
         
-        pygame.display.flip()
+        if not self.headless:
+            pygame.display.flip()
         
     def _draw_segment(self, pos, angle, width, color, is_head=False):
         """Draw a single body segment"""
@@ -319,13 +334,15 @@ class WormGame:
              y - length/2 * sin_a - width/2 * cos_a)
         ]
         
-        pygame.draw.polygon(self.game_surface, color, points)
+        if not self.headless:
+            pygame.draw.polygon(self.game_surface, color, points)
         
         # Draw outline
-        pygame.draw.lines(self.game_surface, (0, 0, 0), True, points, 2)
+        if not self.headless:
+            pygame.draw.lines(self.game_surface, (0, 0, 0), True, points, 2)
         
         # Draw eyes if head
-        if is_head:
+        if is_head and not self.headless:
             eye_radius = 3
             eye_x = x - 5 * cos_a - 5 * sin_a
             eye_y = y - 5 * sin_a + 5 * cos_a
@@ -571,80 +588,75 @@ def update_metrics():
     analytics.update_metrics(episode, metrics_data)
     last_position = current_position
 
-game = WormGame()
-
-# Main game loop
-clock = pygame.time.Clock()
-running = True
-while running:
-    clock.tick(60)
+if __name__ == "__main__":
+    game = WormGame(headless=False)  # Regular display mode for direct running
     
-    # Handle events
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-            
-    # Get current state
-    state = game._get_state()
-    
-    # Get action from agent
-    action = agent.act(state)
-    
-    # Execute action and get next state
-    next_state, info = game.step(action)
-    reward = info.get('reward', 0)
-    done = not info['alive']
-    
-    # Remember experience
-    agent.remember(state, action, reward, next_state, done)
-    
-    # Train the agent
-    if not args.demo:  # Only train if not in demo mode
-        loss = agent.train()
+    # Main game loop
+    clock = pygame.time.Clock()
+    running = True
+    while running:
+        clock.tick(60)
         
-        # Update target network periodically
-        if steps_in_episode % 100 == 0:
-            agent.update_target_model()
+        # Handle events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
                 
-    # Draw everything
-    game.draw()
-    
-    # Update display
-    pygame.display.flip()
-    
-    # Increment steps
-    steps_in_episode += 1
-    
-    # Check if episode should end (either by game over or max steps)
-    if done or steps_in_episode >= MAX_STEPS:
+        # Get current state
+        state = game._get_state()
+        
+        # Get action from agent
+        action = agent.act(state)
+        
+        # Execute action and get next state
+        next_state, info = game.step(action)
+        reward = info.get('reward', 0)
+        done = not info['alive']
+        
+        # Remember experience
+        agent.remember(state, action, reward, next_state, done)
+        
+        # Train the agent
+        if not args.demo:  # Only train if not in demo mode
+            loss = agent.train()
+            
+            # Update target network periodically
+            if steps_in_episode % 100 == 0:
+                agent.update_target_model()
+                
+        # Draw everything
+        game.draw()
+        
+        # Update display
+        pygame.display.flip()
+        
         if done:
             print("Game Over! Starting new episode...")
-        else:
-            print(f"Episode {episode} completed with {steps_in_episode} steps")
+            game.reset()
+            
+        # Increment steps
+        steps_in_episode += 1
         
-        # Save the model state every 5 episodes
-        if episode % 5 == 0:
-            agent.save(episode)
-            print(f"Saved model state at episode {episode}")
-        
-        # Generate analytics report every 10 episodes
-        if episode % 10 == 0:
-            report_path = analytics.generate_report(episode)
-            heatmap_path = analytics.plot_heatmap(positions_history, (game.width, game.height), episode)
-            print(f"Generated report: {report_path}")
-            print(f"Generated heatmap: {heatmap_path}")
-        
-        # Reset episode
-        episode += 1
-        steps_in_episode = 0
-        positions_history = []
-        wall_collisions = 0
-        total_distance = 0
-        game.reset()
-        continue
-        
-    # Track position for analytics
-    if len(positions_history) < MAX_STEPS:
-        positions_history.append((game.x, game.y))
-
-pygame.quit()
+        # Check if episode should end
+        if steps_in_episode >= MAX_STEPS:
+            # Save the model state every 5 episodes
+            if episode % 5 == 0:
+                agent.save(episode)
+                print(f"Saved model state at episode {episode}")
+            
+            # Generate analytics report every 10 episodes
+            if episode % 10 == 0:
+                report_path = analytics.generate_report(episode)
+                heatmap_path = analytics.plot_heatmap(positions_history, (game.width, game.height), episode)
+                print(f"Generated report: {report_path}")
+                print(f"Generated heatmap: {heatmap_path}")
+            
+            # Reset episode
+            episode += 1
+            steps_in_episode = 0
+            positions_history = []
+            wall_collisions = 0
+            total_distance = 0
+            game.reset()
+            
+    pygame.quit()
