@@ -151,74 +151,102 @@ class WormGame:
         self.spawn_plant()
         
     def check_plant_collision(self):
-        head_x, head_y = self.positions[0]
-        for i, plant in enumerate(self.plants):
-            dist = math.sqrt((head_x - plant.x)**2 + (head_y - (plant.y + plant.size))**2)
-            if dist < self.head_size + plant.size:
-                if plant.state == 'mature':
-                    # Eat the plant
-                    self.hunger = min(self.max_hunger, self.hunger + self.hunger_gain_from_plant)
-                    if self.num_segments < self.max_segments:
-                        self.num_segments += 1
-                        self.body_colors.append(self.body_colors[-1])
-                    self.plants.pop(i)
-                    return True
+        """Check for collisions with plants and handle eating"""
+        head_rect = pygame.Rect(self.x - self.head_size/2, self.y - self.head_size/2, 
+                              self.head_size, self.head_size)
+        
+        for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
+            plant_rect = pygame.Rect(plant.x - plant.size/2, plant.y - plant.size/2,
+                                   plant.size, plant.size)
+            
+            if head_rect.colliderect(plant_rect):
+                self.plants.remove(plant)
+                self.hunger = min(self.max_hunger, self.hunger + self.hunger_gain_from_plant)
+                
+                # Grow when eating
+                if self.num_segments < self.max_segments:
+                    self.num_segments += 1
+                    # Add new segment at the end
+                    last_pos = self.positions[-1]
+                    self.positions.append(last_pos)
+                    # Add new color for the segment
+                    green_val = int(150 - (100 * (self.num_segments-1) / (self.max_segments - 1)))
+                    self.body_colors.append((70, green_val + 30, 20))
+                
+                return True
         return False
         
     def update_hunger(self):
+        """Update hunger and return whether worm is still alive"""
         self.hunger = max(0, self.hunger - self.hunger_rate)
         
         # Shrink if very hungry
         if self.hunger < self.max_hunger * 0.2 and self.num_segments > self.min_segments:
             if random.random() < 0.01:  # 1% chance per frame when hungry
                 self.num_segments -= 1
-                self.body_colors.pop()
-                
+                self.positions.pop()  # Remove last segment
+                self.body_colors.pop()  # Remove its color
+        
         return self.hunger > 0 and self.num_segments >= self.min_segments
         
     def step(self, action):
-        wall_collision = False
-        old_head_pos = self.positions[0]
+        """Execute one time step within the environment"""
+        # Convert action to movement
+        angle = action * (2 * math.pi / 8)  # Convert to radians (8 possible directions)
+        speed = 5.0  # Fixed speed
         
-        # Update head position based on action
-        if action < 8:  # Movement actions
-            self.angle = action * math.pi / 4
-            dx = math.cos(self.angle) * self.speed
-            dy = math.sin(self.angle) * self.speed
-            new_x = max(self.head_size, min(self.width - self.head_size, self.x + dx))
-            new_y = max(self.head_size, min(self.height - self.head_size, self.y + dy))
+        # Calculate movement
+        dx = math.cos(angle) * speed
+        dy = math.sin(angle) * speed
+        
+        # Previous position for movement calculations
+        prev_x = self.x
+        prev_y = self.y
+        
+        # Update position
+        self.x += dx
+        self.y += dy
+        
+        # Check wall collisions and constrain position
+        wall_collision = False
+        margin = self.head_size
+        if self.x < margin:
+            self.x = margin
+            wall_collision = True
+        elif self.x > self.width - margin:
+            self.x = self.width - margin
+            wall_collision = True
+        if self.y < margin:
+            self.y = margin
+            wall_collision = True
+        elif self.y > self.height - margin:
+            self.y = self.height - margin
+            wall_collision = True
             
-            wall_collision = (new_x in (self.head_size, self.width - self.head_size) or 
-                            new_y in (self.head_size, self.height - self.head_size))
-            
-            self.x, self.y = new_x, new_y
-            
-            # Calculate movement vector
-            move_dx = self.x - old_head_pos[0]
-            move_dy = self.y - old_head_pos[1]
-            move_dist = math.sqrt(move_dx * move_dx + move_dy * move_dy)
-            
-            # Only update body if there was significant movement
-            if move_dist > 0.1:  # Small threshold to prevent micro-movements
-                # Update body segments
-                self.positions[0] = (self.x, self.y)
-                for i in range(1, len(self.positions)):
-                    target_x = self.positions[i-1][0]
-                    target_y = self.positions[i-1][1]
-                    curr_x = self.positions[i][0]
-                    curr_y = self.positions[i][1]
-                    
-                    # Calculate direction to target
-                    dx = target_x - curr_x
-                    dy = target_y - curr_y
-                    dist = math.sqrt(dx*dx + dy*dy)
-                    
-                    # Move segment towards target, maintaining spacing
-                    if dist > self.segment_width * self.spacing:
-                        move_ratio = (dist - self.segment_width * self.spacing) / dist
-                        new_x = curr_x + dx * move_ratio
-                        new_y = curr_y + dy * move_ratio
-                        self.positions[i] = (new_x, new_y)
+        # Calculate movement distance
+        move_dist = math.sqrt((self.x - prev_x)**2 + (self.y - prev_y)**2)
+        
+        # Only update body if there was significant movement
+        if move_dist > 0.1:  # Small threshold to prevent micro-movements
+            # Update body segments
+            self.positions[0] = (self.x, self.y)
+            for i in range(1, len(self.positions)):
+                target_x = self.positions[i-1][0]
+                target_y = self.positions[i-1][1]
+                curr_x = self.positions[i][0]
+                curr_y = self.positions[i][1]
+                
+                # Calculate direction to target
+                dx = target_x - curr_x
+                dy = target_y - curr_y
+                dist = math.sqrt(dx*dx + dy*dy)
+                
+                # Move segment towards target, maintaining spacing
+                if dist > self.segment_width * self.spacing:
+                    move_ratio = (dist - self.segment_width * self.spacing) / dist
+                    new_x = curr_x + dx * move_ratio
+                    new_y = curr_y + dy * move_ratio
+                    self.positions[i] = (new_x, new_y)
         
         # Update plants and check collisions
         self.update_plants()
@@ -227,13 +255,55 @@ class WormGame:
         # Update hunger
         alive = self.update_hunger()
         
+        # Calculate reward
+        reward = 0
+        
+        # Reward for eating plants and growing
+        if ate_plant:
+            # Higher reward when hungrier
+            hunger_ratio = 1 - (self.hunger / self.max_hunger)
+            reward += 10.0 * (1 + hunger_ratio)  # Base reward ranges from 10 to 20 based on hunger
+            
+            # Extra reward for growing
+            if self.num_segments > len(self.positions) - 1:  # If we grew
+                reward += 5.0  # Bonus for growing
+                
+        # Penalty for hitting walls
+        if wall_collision:
+            reward -= 1.0
+        
+        # Penalty for shrinking
+        if self.num_segments < len(self.positions) - 1:  # If we shrunk
+            reward -= 2.0
+        
+        # Small reward for moving towards closest plant, bigger when hungry
+        closest_plant = None
+        min_dist = float('inf')
+        for plant in self.plants:
+            dist = math.sqrt((self.x - plant.x)**2 + (self.y - plant.y)**2)
+            if dist < min_dist:
+                min_dist = dist
+                closest_plant = plant
+                
+        if closest_plant:
+            prev_dist = math.sqrt((prev_x - closest_plant.x)**2 + (prev_y - closest_plant.y)**2)
+            curr_dist = math.sqrt((self.x - closest_plant.x)**2 + (self.y - closest_plant.y)**2)
+            if curr_dist < prev_dist:
+                hunger_ratio = 1 - (self.hunger / self.max_hunger)
+                reward += 0.2 * (1 + hunger_ratio)  # Reward ranges from 0.2 to 0.4 based on hunger
+        
+        # Small penalty for being very hungry
+        if self.hunger < self.max_hunger * 0.2:  # Less than 20% hunger
+            reward -= 0.1
+        
         # Get state and additional info
         state = self._get_state()
         info = {
             'wall_collision': wall_collision,
             'ate_plant': ate_plant,
             'hunger': self.hunger / self.max_hunger,
-            'alive': alive
+            'alive': alive,
+            'reward': reward  # Add reward to info
         }
         
         return state, info
@@ -409,23 +479,41 @@ class WormGame:
         return state
 
     def reset(self):
-        self.x = self.width // 2
-        self.y = self.height // 2
+        """Reset the game state"""
+        # Reset worm position to center
+        self.x = self.width / 2
+        self.y = self.height / 2
         self.angle = 0
         self.speed = 5
         
-        # Initialize body segments in a straight line behind the head
-        self.positions = []
-        dx = -math.cos(self.angle) * (self.segment_width * self.spacing)
-        dy = -math.sin(self.angle) * (self.segment_width * self.spacing)
+        # Reset segments
+        self.num_segments = 20
+        self.positions = [(self.x, self.y) for _ in range(self.num_segments)]
         
-        for i in range(self.num_segments):
-            pos_x = self.x + dx * i
-            pos_y = self.y + dy * i
-            self.positions.append((pos_x, pos_y))
+        # Reset hunger
+        self.hunger = self.max_hunger
         
+        # Clear and respawn plants
+        self.plants = []
+        for _ in range(self.max_plants):
+            self.spawn_plant()
+            
+        # Get initial state
         return self._get_state()
-
+        
+    def update_hunger(self):
+        """Update hunger and return whether worm is still alive"""
+        self.hunger = max(0, self.hunger - self.hunger_rate)
+        
+        # Shrink if very hungry
+        if self.hunger < self.max_hunger * 0.2 and self.num_segments > self.min_segments:
+            if random.random() < 0.01:  # 1% chance per frame when hungry
+                self.num_segments -= 1
+                self.positions.pop()  # Remove last segment
+                self.body_colors.pop()  # Remove its color
+        
+        return self.hunger > 0 and self.num_segments >= self.min_segments
+        
 class WormAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size

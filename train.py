@@ -177,6 +177,10 @@ def fast_training():
                 action = agent.act(state)
                 next_state, info = game.step(action)
                 
+                # Get reward from game
+                reward = info.get('reward', 0)
+                done = not info['alive']
+                
                 # Track metrics
                 if info['ate_plant']:
                     plants_eaten += 1
@@ -188,19 +192,11 @@ def fast_training():
                 grid_pos = (int(head_pos[0]/50), int(head_pos[1]/50))
                 episode_positions.add(grid_pos)
                 
-                # Get reward from game
-                reward = info.get('reward', 0)
-                done = not info['alive']
-                
-                # Store experience
+                # Store experience and train
                 agent.remember(state, action, reward, next_state, done)
-                
-                # Train the agent
                 loss = agent.train()
                 
-                if done:
-                    break
-                    
+                # Update state and metrics
                 state = next_state
                 total_reward += reward
                 steps_survived += 1
@@ -208,6 +204,10 @@ def fast_training():
                 # Update target network periodically
                 if step % 1000 == 0:
                     agent.update_target_model()
+                    
+                # Break if done
+                if done:
+                    break
             
             # Calculate metrics
             exploration_ratio = len(episode_positions) / ((game.width//50) * (game.height//50))
