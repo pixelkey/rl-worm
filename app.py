@@ -123,7 +123,7 @@ class WormGame:
         # Movement properties
         self.angle = 0  # Current angle
         self.target_angle = 0  # Target angle
-        self.angular_speed = 0.15  # How fast we can turn
+        self.angular_speed = 0.1  # How fast we can turn (reduced from 0.15)
         self.speed = 5.0  # Movement speed
         self.prev_action = 4  # Previous action (start with no movement)
         
@@ -707,7 +707,7 @@ class WormAgent:
         print(f"Saved model state at episode {episode}")
 
 # ML Agent setup
-STATE_SIZE = 15  # position (2), velocity (2), distances to walls (4), closest plant (4), angle (1), angular velocity (1), hunger (1)
+STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
 ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
