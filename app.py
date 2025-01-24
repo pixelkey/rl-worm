@@ -133,11 +133,11 @@ class WormGame:
         # Worm properties - scale with game area
         self.segment_length = int(self.game_height/20)  # Spacing between segments
         self.segment_width = int(self.game_height/25)   # Size of body segments
-        self.num_segments = 20
+        self.num_segments = 10  # Start with 10 segments instead of 20
         self.max_segments = 30
         self.min_segments = 5
         self.head_size = int(self.game_height/20)      # Size of head
-        self.spacing = 0.8  # Spacing between segments
+        self.segment_spacing = self.head_size * 1.2  # Fixed spacing between segments
         
         # Eye properties
         self.eye_size = int(self.head_size * 0.25)
@@ -154,7 +154,10 @@ class WormGame:
         self.hunger = self.max_hunger
         self.base_hunger_rate = 0.1
         self.current_hunger_rate = self.base_hunger_rate
-        self.hunger_gain_from_plant = 300
+        self.hunger_gain_from_plant = 400  # Increased from 300
+        self.shrink_hunger_threshold = 0.4  # Start shrinking at 40% hunger instead of 50%
+        self.shrink_cooldown = 60  # Frames between shrinks
+        self.shrink_timer = 0  # Counter for shrink cooldown
         
         # Plant mechanics
         self.plants = []
@@ -220,19 +223,63 @@ class WormGame:
         
     def check_plant_collision(self):
         """Check for collisions with plants and handle eating"""
-        head_rect = pygame.Rect(self.positions[0][0] - self.head_size/2, 
-                              self.positions[0][1] - self.head_size/2,
+        # Only check head collisions for eating
+        head_x, head_y = self.positions[0]
+        head_rect = pygame.Rect(head_x - self.head_size/2, 
+                              head_y - self.head_size/2,
                               self.head_size, self.head_size)
         
+        # Check each plant
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
-            plant_rect = pygame.Rect(plant.x - plant.size/2, plant.y - plant.size/2,
+            plant_rect = pygame.Rect(plant.x - plant.size/2, 
+                                   plant.y - plant.size/2,
                                    plant.size, plant.size)
             
+            # First check if any body segment overlaps with plant
+            body_collision = False
+            for i in range(1, len(self.positions)):  # Skip head (index 0)
+                body_x, body_y = self.positions[i]
+                body_rect = pygame.Rect(body_x - self.segment_width/2,
+                                      body_y - self.segment_width/2,
+                                      self.segment_width,
+                                      self.segment_width)
+                if body_rect.colliderect(plant_rect):
+                    body_collision = True
+                    break
+            
+            # If body collides with plant, move the plant
+            if body_collision:
+                # Find new position for plant
+                attempts = 0
+                while attempts < 10:  # Try 10 times to find new position
+                    new_x = random.randint(plant.size, self.width - plant.size)
+                    new_y = random.randint(plant.size, self.height - plant.size)
+                    
+                    # Check if new position is clear of worm
+                    clear_position = True
+                    for pos_x, pos_y in self.positions:
+                        dist = math.sqrt((new_x - pos_x)**2 + (new_y - pos_y)**2)
+                        if dist < self.head_size * 2:  # Give some extra space
+                            clear_position = False
+                            break
+                    
+                    if clear_position:
+                        plant.x = new_x
+                        plant.y = new_y
+                        break
+                    attempts += 1
+                
+                if attempts == 10:  # If can't find clear spot, remove plant
+                    self.plants.remove(plant)
+                continue
+            
+            # Only head can eat plants
             if head_rect.colliderect(plant_rect):
                 self.plants.remove(plant)
+                old_hunger = self.hunger
                 self.hunger = min(self.max_hunger, self.hunger + self.hunger_gain_from_plant)
                 
-                # Grow when eating
+                # Grow when eating if not at max size
                 if self.num_segments < self.max_segments:
                     self.num_segments += 1
                     # Add new segment at the end
@@ -241,27 +288,45 @@ class WormGame:
                     # Add new color for the segment
                     green_val = int(150 - (100 * (self.num_segments-1) / (self.max_segments - 1)))
                     self.body_colors.append((70, green_val + 30, 20))
+                    # Show happy expression for growing
+                    self.expression = 1
+                    self.expression_time = time.time()
+                
+                # Show neutral expression for just eating
+                elif old_hunger < self.hunger:
+                    self.expression = 0.5
+                    self.expression_time = time.time()
                 
                 return True
         return False
         
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
+        old_hunger = self.hunger
         self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
-        # Calculate shrinking probability based on hunger level
+        # Update shrink timer
+        if self.shrink_timer > 0:
+            self.shrink_timer -= 1
+        
+        # Calculate shrinking based on hunger level
         hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio < 0.5:  # Start shrinking below 50% hunger
-            # Shrinking probability increases as hunger decreases
-            # At 50% hunger: 0.1% chance per frame
-            # At 0% hunger: 5% chance per frame
-            shrink_probability = 0.05 * (1 - (hunger_ratio * 2))
-            
-            if self.num_segments > self.min_segments and random.random() < shrink_probability:
+        if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
+            if self.num_segments > self.min_segments:
+                # Show sad expression when shrinking
+                self.expression = -1
+                self.expression_time = time.time()
+                # Remove last segment
                 self.num_segments -= 1
                 if len(self.positions) > self.num_segments:
-                    self.positions.pop()  # Remove last segment
-                    self.body_colors.pop()  # Remove its color
+                    self.positions.pop()
+                    self.body_colors.pop()
+                # Set cooldown
+                self.shrink_timer = self.shrink_cooldown
+            elif old_hunger > 0 and self.hunger == 0:
+                # Show very sad expression when at minimum size and starving
+                self.expression = -1
+                self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
         return self.hunger > 0 and self.num_segments > 0
@@ -269,8 +334,8 @@ class WormGame:
     def step(self, action):
         """Execute one time step within the environment"""
         # Update difficulty based on worm length
-        difficulty_factor = len(self.positions) / 5  # Every 5 segments increases difficulty
-        self.current_hunger_rate = self.base_hunger_rate * (1 + difficulty_factor * 0.2)  # 20% faster hunger per difficulty level
+        difficulty_factor = (len(self.positions) - self.min_segments) / 10  # Every 10 segments above min increases difficulty
+        self.current_hunger_rate = self.base_hunger_rate * (1 + difficulty_factor * 0.1)  # 10% faster hunger per difficulty level
         self.current_plant_spawn_chance = self.base_plant_spawn_chance / (1 + difficulty_factor * 0.1)  # 10% fewer plants per difficulty level
         self.current_max_plants = max(2, self.base_max_plants - int(difficulty_factor))  # Reduce max plants but keep at least 2
         
@@ -311,23 +376,44 @@ class WormGame:
             new_head_y = self.height - margin
             wall_collision = True
             
-        # Always update head position
-        if len(self.positions) == 0:
-            self.positions.append((new_head_x, new_head_y))
-        else:
-            # Only update if position has changed
-            current_head = self.positions[0]
-            if (new_head_x, new_head_y) != current_head:
-                self.positions.insert(0, (new_head_x, new_head_y))
-                # Remove last position if we have too many
-                if len(self.positions) > self.num_segments:
-                    self.positions.pop()
+        # Update head position
+        self.positions[0] = (new_head_x, new_head_y)
         
-        # Ensure we maintain the correct number of body segments
-        while len(self.positions) < self.num_segments:
-            # If we don't have enough positions, duplicate the last one
-            last_pos = self.positions[-1] if self.positions else (new_head_x, new_head_y)
-            self.positions.append(last_pos)
+        # Update body segment positions with fixed spacing
+        for i in range(1, self.num_segments):
+            # Get direction to previous segment
+            prev_x, prev_y = self.positions[i-1]
+            if i < len(self.positions):
+                curr_x, curr_y = self.positions[i]
+            else:
+                # If this is a new segment, place it behind the previous one
+                angle = self.angle + math.pi  # Opposite direction of movement
+                curr_x = prev_x - math.cos(angle) * self.segment_spacing
+                curr_y = prev_y - math.sin(angle) * self.segment_spacing
+            
+            # Calculate direction from current to previous segment
+            dx = prev_x - curr_x
+            dy = prev_y - curr_y
+            dist = math.sqrt(dx*dx + dy*dy)
+            
+            if dist > 0:
+                # Normalize direction
+                dx /= dist
+                dy /= dist
+                
+                # Position segment at fixed distance from previous segment
+                new_x = prev_x - dx * self.segment_spacing
+                new_y = prev_y - dy * self.segment_spacing
+                
+                # Update position
+                if i < len(self.positions):
+                    self.positions[i] = (new_x, new_y)
+                else:
+                    self.positions.append((new_x, new_y))
+            
+        # Ensure we have exactly num_segments positions
+        while len(self.positions) > self.num_segments:
+            self.positions.pop()
         
         # Update plants and check collisions
         self.update_plants()
@@ -668,8 +754,8 @@ class WormGame:
         self.target_angle = 0
         self.prev_action = 4  # Reset to no movement
         
-        # Reset segments
-        self.num_segments = 20
+        # Reset segments to starting length
+        self.num_segments = 10  # Reset to 10 segments
         self.positions = [(self.x, self.y) for _ in range(self.num_segments)]
         
         # Reset colors
@@ -691,21 +777,31 @@ class WormGame:
         
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
+        old_hunger = self.hunger
         self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
-        # Calculate shrinking probability based on hunger level
+        # Update shrink timer
+        if self.shrink_timer > 0:
+            self.shrink_timer -= 1
+        
+        # Calculate shrinking based on hunger level
         hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio < 0.5:  # Start shrinking below 50% hunger
-            # Shrinking probability increases as hunger decreases
-            # At 50% hunger: 0.1% chance per frame
-            # At 0% hunger: 5% chance per frame
-            shrink_probability = 0.05 * (1 - (hunger_ratio * 2))
-            
-            if self.num_segments > self.min_segments and random.random() < shrink_probability:
+        if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
+            if self.num_segments > self.min_segments:
+                # Show sad expression when shrinking
+                self.expression = -1
+                self.expression_time = time.time()
+                # Remove last segment
                 self.num_segments -= 1
                 if len(self.positions) > self.num_segments:
-                    self.positions.pop()  # Remove last segment
-                    self.body_colors.pop()  # Remove its color
+                    self.positions.pop()
+                    self.body_colors.pop()
+                # Set cooldown
+                self.shrink_timer = self.shrink_cooldown
+            elif old_hunger > 0 and self.hunger == 0:
+                # Show very sad expression when at minimum size and starving
+                self.expression = -1
+                self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
         return self.hunger > 0 and self.num_segments > 0
