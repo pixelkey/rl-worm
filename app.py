@@ -285,15 +285,23 @@ class WormGame:
             self.y = self.height - margin
             wall_collision = True
             
-        # Calculate movement distance
-        move_dist = math.sqrt((self.x - prev_x)**2 + (self.y - prev_y)**2)
+        # Always update head position
+        if len(self.positions) == 0:
+            self.positions.append((self.x, self.y))
+        else:
+            # Only update if position has changed
+            current_head = self.positions[0]
+            if (self.x, self.y) != current_head:
+                self.positions.insert(0, (self.x, self.y))
+                # Remove last position if we have too many
+                if len(self.positions) > self.num_segments:
+                    self.positions.pop()
         
-        # Only update body if there was significant movement
-        if move_dist > 0.1:  # Small threshold to prevent micro-movements
-            # Update body segments
-            self.positions.insert(0, (self.x, self.y))
-            if len(self.positions) > self.num_segments:
-                self.positions.pop()
+        # Ensure we maintain the correct number of body segments
+        while len(self.positions) < self.num_segments:
+            # If we don't have enough positions, duplicate the last one
+            last_pos = self.positions[-1] if self.positions else (self.x, self.y)
+            self.positions.append(last_pos)
         
         # Update plants and check collisions
         self.update_plants()
@@ -799,9 +807,6 @@ if __name__ == "__main__":
                 
         # Draw everything
         game.draw()
-        
-        # Update display
-        pygame.display.flip()
         
         if done:
             print("Game Over! Starting new episode...")
