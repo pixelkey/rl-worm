@@ -111,32 +111,37 @@ class WormAgent:
         
         minibatch = random.sample(self.memory, self.batch_size)
         
-        # Pre-allocate numpy arrays for batch processing
+        # Pre-allocate and fill arrays
         states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
         next_states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+        actions_array = np.zeros(self.batch_size, dtype=np.int64)
+        rewards_array = np.zeros(self.batch_size, dtype=np.float32)
+        dones_array = np.zeros(self.batch_size, dtype=np.float32)
         
-        # Convert lists to numpy arrays first for faster tensor creation
-        for i, (state, _, _, next_state, _) in enumerate(minibatch):
+        # Fill arrays efficiently
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
             states_array[i] = state
             next_states_array[i] = next_state
+            actions_array[i] = action
+            rewards_array[i] = reward
+            dones_array[i] = done
         
-        # Create tensors efficiently from numpy arrays
-        states = torch.from_numpy(states_array).float().to(self.device)
-        actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
-        rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
-        next_states = torch.from_numpy(next_states_array).float().to(self.device)
-        dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
+        # Convert all arrays to tensors at once
+        states = torch.from_numpy(states_array).to(self.device)
+        next_states = torch.from_numpy(next_states_array).to(self.device)
+        actions = torch.from_numpy(actions_array).to(self.device)
+        rewards = torch.from_numpy(rewards_array).to(self.device)
+        dones = torch.from_numpy(dones_array).to(self.device)
         
-        # Simple forward pass
+        # Forward passes
         current_q = self.model(states).gather(1, actions.unsqueeze(1))
         with torch.no_grad():
             next_q = self.target_model(next_states).max(1)[0]
             target_q = rewards + (1 - dones) * self.gamma * next_q
         
-        # Basic MSE loss
+        # Loss and backward pass
         loss = nn.MSELoss()(current_q.squeeze(), target_q)
         
-        # Standard optimization step
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -193,10 +198,6 @@ def fast_training():
     
     steps_per_episode = MIN_STEPS
     last_time = time.time()
-    
-    # Pre-allocate numpy arrays for batch processing
-    states_array = np.zeros((agent.batch_size, STATE_SIZE), dtype=np.float32)
-    next_states_array = np.zeros((agent.batch_size, STATE_SIZE), dtype=np.float32)
     
     try:
         for episode in range(TRAINING_EPISODES):
