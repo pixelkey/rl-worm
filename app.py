@@ -174,12 +174,85 @@ class WormGame:
         for i in range(self.max_segments):
             green_val = int(150 - (100 * i / self.max_segments))
             self.body_colors.append((70, green_val + 30, 20))
-        self.wall_color = (100, 100, 100)  # Gray for walls
+        self.wall_color = (70, 70, 70)  # Dark gray
         self.spike_color = (70, 70, 70)   # Darker gray for spikes
         
         # Game boundaries (use game area dimensions)
         self.width = self.game_width
         self.height = self.game_height
+        
+        # Generate rocky walls once at initialization
+        self.wall_points = 100  # More points for finer detail
+        self.wall_color = (70, 70, 70)  # Dark gray
+        margin = self.head_size
+        base_jitter = self.head_size * 0.8  # Base jitter amount
+        
+        def get_jagged_wall_points(start, end, num_points):
+            points = []
+            # Get wall direction
+            is_vertical = start[0] == end[0]
+            wall_length = end[1] - start[1] if is_vertical else end[0] - start[0]
+            
+            # Generate base points along the wall
+            for i in range(num_points):
+                t = i / (num_points - 1)
+                # Base position along wall
+                base_x = start[0] + (0 if is_vertical else t * wall_length)
+                base_y = start[1] + (t * wall_length if is_vertical else 0)
+                
+                # Calculate jitter based on position
+                # More jitter in middle, less at corners
+                edge_factor = min(t, 1-t) * 4  # Reduces jitter near corners
+                jitter_scale = base_jitter * (0.5 + edge_factor)
+                
+                # Add random jitter inward
+                if is_vertical:
+                    if start[0] == margin:  # Left wall
+                        jit_x = random.random() * jitter_scale
+                    else:  # Right wall
+                        jit_x = -random.random() * jitter_scale
+                    # Add some vertical displacement for more jaggedness
+                    jit_y = (random.random() - 0.5) * jitter_scale * 0.5
+                else:
+                    if start[1] == margin:  # Top wall
+                        jit_y = random.random() * jitter_scale
+                    else:  # Bottom wall
+                        jit_y = -random.random() * jitter_scale
+                    # Add some horizontal displacement for more jaggedness
+                    jit_x = (random.random() - 0.5) * jitter_scale * 0.5
+                
+                # Add sharp spikes randomly
+                if random.random() < 0.2:  # 20% chance of spike
+                    if is_vertical:
+                        jit_x *= 2.0
+                    else:
+                        jit_y *= 2.0
+                
+                points.append((base_x + jit_x, base_y + jit_y))
+            
+            # Add intermediate points for smoother jagged edges
+            smoothed_points = []
+            for i in range(len(points) - 1):
+                p1 = points[i]
+                p2 = points[i + 1]
+                smoothed_points.append(p1)
+                
+                # Add 2 intermediate points between each pair of main points
+                for j in range(1, 3):
+                    t = j / 3
+                    # Linear interpolation with some random displacement
+                    mid_x = p1[0] + t * (p2[0] - p1[0]) + (random.random() - 0.5) * base_jitter * 0.3
+                    mid_y = p1[1] + t * (p2[1] - p1[1]) + (random.random() - 0.5) * base_jitter * 0.3
+                    smoothed_points.append((mid_x, mid_y))
+            
+            smoothed_points.append(points[-1])
+            return smoothed_points
+        
+        # Generate all wall points once
+        self.left_wall = get_jagged_wall_points((margin, margin), (margin, self.height-margin), self.wall_points)
+        self.right_wall = get_jagged_wall_points((self.width-margin, margin), (self.width-margin, self.height-margin), self.wall_points)
+        self.top_wall = get_jagged_wall_points((margin, margin), (self.width-margin, margin), self.wall_points)
+        self.bottom_wall = get_jagged_wall_points((margin, self.height-margin), (self.width-margin, self.height-margin), self.wall_points)
         
         # Reward/Penalty constants
         self.REWARD_FOOD_BASE = 100.0  # Doubled from 50.0
@@ -193,6 +266,7 @@ class WormGame:
         self.PENALTY_SHARP_TURN = -0.5  # Reduced from -1.0
         self.PENALTY_STARVATION_BASE = -0.1  # Reduced from -0.2
         self.PENALTY_DIRECTION_CHANGE = -0.1  # Reduced from -0.2
+        self.PENALTY_SHRINK = -20.0  # New penalty for losing a segment
         
         # Expression scaling
         self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
@@ -306,6 +380,7 @@ class WormGame:
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
         old_hunger = self.hunger
+        old_segments = self.num_segments
         self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
         # Update shrink timer
@@ -326,13 +401,15 @@ class WormGame:
                     self.body_colors.pop()
                 # Set cooldown
                 self.shrink_timer = self.shrink_cooldown
+                # Return shrink occurred
+                return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
                 self.expression = -1
                 self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
-        return self.hunger > 0 and self.num_segments > 0
+        return self.hunger > 0 and self.num_segments > 0, False
         
     def step(self, action):
         """Execute one time step within the environment"""
@@ -426,8 +503,8 @@ class WormGame:
         self.update_plants()
         ate_plant = self.check_plant_collision()
         
-        # Update hunger
-        alive = self.update_hunger()
+        # Update hunger and check if shrink occurred
+        alive, did_shrink = self.update_hunger()
         
         # Calculate reward using Maslow's hierarchy
         reward = 0
@@ -485,6 +562,12 @@ class WormGame:
         if ate_plant and self.hunger > self.max_hunger * 0.5:
             reward += self.REWARD_GROWTH
         
+        # Shrinking penalty
+        if did_shrink:
+            reward += self.PENALTY_SHRINK
+            self.expression = max(-1.0, self.PENALTY_SHRINK / self.EXPRESSION_SCALE)
+            self.expression_time = time.time()
+        
         # Update previous action
         self.prev_action = action
         
@@ -500,73 +583,37 @@ class WormGame:
         if self.headless:
             return
             
-        if surface is None:
-            surface = pygame.display.get_surface()
-            
-        # Clear game surface with dark background
-        self.game_surface.fill((30, 30, 30))
+        # Use provided surface or default game surface
+        draw_surface = surface if surface is not None else self.game_surface
         
-        # Draw rocky walls
-        wall_color = (70, 70, 70)  # Dark gray
-        wall_points = 30  # Points per wall
-        jitter = self.head_size // 2  # Max random offset
+        # Fill background with dark color
+        draw_surface.fill((20, 20, 20))
         
-        # Generate random jagged points for each wall
-        def get_wall_points(start, end, count, inward=True):
-            points = []
-            for i in range(count):
-                t = i / (count - 1)  # Parameter from 0 to 1
-                # Linear interpolation between start and end
-                base_x = start[0] + t * (end[0] - start[0])
-                base_y = start[1] + t * (end[1] - start[1])
-                # Add random jitter inward
-                if inward:
-                    if start[0] == end[0]:  # Vertical wall
-                        if start[0] == 0:  # Left wall
-                            jit_x = random.randint(0, jitter)
-                        else:  # Right wall
-                            jit_x = random.randint(-jitter, 0)
-                        jit_y = random.randint(-jitter//2, jitter//2)
-                    else:  # Horizontal wall
-                        if start[1] == 0:  # Top wall
-                            jit_y = random.randint(0, jitter)
-                        else:  # Bottom wall
-                            jit_y = random.randint(-jitter, 0)
-                        jit_x = random.randint(-jitter//2, jitter//2)
-                    points.append((base_x + jit_x, base_y + jit_y))
-                else:
-                    points.append((base_x, base_y))
-            return points
+        # Draw walls as connected jagged lines
+        def draw_wall_line(points):
+            if len(points) > 1:
+                pygame.draw.lines(draw_surface, self.wall_color, False, points, 2)
+                # Add some darker shading on the inner edge
+                darker_color = (max(0, self.wall_color[0] - 20),
+                              max(0, self.wall_color[1] - 20),
+                              max(0, self.wall_color[2] - 20))
+                pygame.draw.lines(draw_surface, darker_color, False, points, 1)
         
-        # Draw each wall
-        margin = self.head_size
-        
-        # Left wall
-        left_wall = get_wall_points((margin, margin), (margin, self.height-margin), wall_points)
-        pygame.draw.lines(self.game_surface, wall_color, False, left_wall, 3)
-        
-        # Right wall
-        right_wall = get_wall_points((self.width-margin, margin), (self.width-margin, self.height-margin), wall_points)
-        pygame.draw.lines(self.game_surface, wall_color, False, right_wall, 3)
-        
-        # Top wall
-        top_wall = get_wall_points((margin, margin), (self.width-margin, margin), wall_points)
-        pygame.draw.lines(self.game_surface, wall_color, False, top_wall, 3)
-        
-        # Bottom wall
-        bottom_wall = get_wall_points((margin, self.height-margin), (self.width-margin, self.height-margin), wall_points)
-        pygame.draw.lines(self.game_surface, wall_color, False, bottom_wall, 3)
+        draw_wall_line(self.left_wall)
+        draw_wall_line(self.right_wall)
+        draw_wall_line(self.top_wall)
+        draw_wall_line(self.bottom_wall)
         
         # Draw grid lines for visual reference
         grid_spacing = self.game_height // 10
         for i in range(0, self.game_width + grid_spacing, grid_spacing):
-            pygame.draw.line(self.game_surface, (40, 40, 40), (i, 0), (i, self.game_height))
+            pygame.draw.line(draw_surface, (40, 40, 40), (i, 0), (i, self.game_height))
         for i in range(0, self.game_height + grid_spacing, grid_spacing):
-            pygame.draw.line(self.game_surface, (40, 40, 40), (0, i), (self.game_width, i))
+            pygame.draw.line(draw_surface, (40, 40, 40), (0, i), (self.game_width, i))
         
         # Draw plants
         for plant in self.plants:
-            plant.draw(self.game_surface)
+            plant.draw(draw_surface)
         
         # Draw worm segments from tail to head
         for i in range(len(self.positions)-1, 0, -1):
@@ -611,12 +658,12 @@ class WormGame:
             fill_color = (255, 0, 0)  # Red when low
         
         # Draw border
-        pygame.draw.rect(self.game_surface, border_color, 
+        pygame.draw.rect(draw_surface, border_color, 
                        (meter_x, meter_y, meter_width, meter_height), 2)
         
         # Draw fill
         fill_width = max(0, min(meter_width-4, int((meter_width-4) * hunger_ratio)))
-        pygame.draw.rect(self.game_surface, fill_color,
+        pygame.draw.rect(draw_surface, fill_color,
                        (meter_x+2, meter_y+2, fill_width, meter_height-4))
         
         # Draw length indicator
@@ -625,14 +672,15 @@ class WormGame:
         text_surface = font.render(length_text, True, (200, 200, 200))
         text_rect = text_surface.get_rect()
         text_rect.topleft = (meter_x, meter_y + meter_height + 5)
-        self.game_surface.blit(text_surface, text_rect)
+        draw_surface.blit(text_surface, text_rect)
         
         # Draw game area border
         # Clear screen
+        surface = pygame.display.get_surface()
         surface.fill((20, 20, 20))
         
         # Draw game surface onto main screen with offset
-        surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
+        surface.blit(draw_surface, (self.game_x_offset, self.game_y_offset))
         
         # Draw border around game area
         pygame.draw.rect(surface, (100, 100, 100), 
@@ -837,6 +885,7 @@ class WormGame:
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
         old_hunger = self.hunger
+        old_segments = self.num_segments
         self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
         # Update shrink timer
@@ -857,13 +906,15 @@ class WormGame:
                     self.body_colors.pop()
                 # Set cooldown
                 self.shrink_timer = self.shrink_cooldown
+                # Return shrink occurred
+                return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
                 self.expression = -1
                 self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
-        return self.hunger > 0 and self.num_segments > 0
+        return self.hunger > 0 and self.num_segments > 0, False
         
 class WormAgent:
     def __init__(self, state_size, action_size):
