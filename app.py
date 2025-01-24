@@ -480,11 +480,22 @@ class WormGame:
         
         if is_head:
             # Calculate eye positions (rotate around head center)
-            eye_angle_spread = math.pi/2.5  # Increased spread between eyes
-            left_eye_x = x + math.cos(angle + eye_angle_spread) * self.eye_offset
-            left_eye_y = y + math.sin(angle + eye_angle_spread) * self.eye_offset
-            right_eye_x = x + math.cos(angle - eye_angle_spread) * self.eye_offset
-            right_eye_y = y + math.sin(angle - eye_angle_spread) * self.eye_offset
+            eye_offset = self.head_size * 0.3  # Distance from center
+            
+            # Calculate eye positions relative to movement direction
+            eye_y_offset = self.head_size * 0.1  # Eyes slightly up
+            
+            # Base eye positions (before rotation)
+            base_left_x = -eye_offset
+            base_left_y = -eye_y_offset
+            base_right_x = eye_offset
+            base_right_y = -eye_y_offset
+            
+            # Rotate eye positions based on worm's angle
+            left_eye_x = x + (base_left_x * math.cos(angle) - base_left_y * math.sin(angle))
+            left_eye_y = y + (base_left_x * math.sin(angle) + base_left_y * math.cos(angle))
+            right_eye_x = x + (base_right_x * math.cos(angle) - base_right_y * math.sin(angle))
+            right_eye_y = y + (base_right_x * math.sin(angle) + base_right_y * math.cos(angle))
             
             # Draw eyes (white part)
             pygame.draw.circle(self.game_surface, self.eye_color, 
@@ -517,27 +528,30 @@ class WormGame:
             else:
                 current_expression = 0
             
-            # Draw mouth (moved forward and down from eyes)
-            mouth_width = self.head_size * 0.5  # Slightly smaller mouth
-            mouth_height = self.head_size * 0.2
-            mouth_forward_offset = self.head_size * 0.4  # Move mouth forward
-            mouth_down_offset = self.head_size * 0.2    # Move mouth down relative to direction
+            # Draw mouth (centered and below eyes)
+            mouth_width = self.head_size * 0.7  # Bigger mouth
+            mouth_height = self.head_size * 0.3  # Increased height for more expressive curves
+            mouth_y_offset = self.head_size * 0.2  # Move down from center
             
-            # Calculate mouth center with both forward and downward offset
-            mouth_angle = angle + math.pi/2  # Perpendicular to movement direction for "down"
-            mouth_center_x = x + math.cos(angle) * mouth_forward_offset + math.cos(mouth_angle) * mouth_down_offset
-            mouth_center_y = y + math.sin(angle) * mouth_forward_offset + math.sin(mouth_angle) * mouth_down_offset
+            # Base mouth points (before rotation)
+            base_left_x = -mouth_width/2
+            base_left_y = mouth_y_offset
+            base_right_x = mouth_width/2
+            base_right_y = mouth_y_offset
             
-            # Calculate mouth points
-            left_x = mouth_center_x + math.cos(angle + math.pi/2) * mouth_width/2
-            left_y = mouth_center_y + math.sin(angle + math.pi/2) * mouth_width/2
-            right_x = mouth_center_x + math.cos(angle - math.pi/2) * mouth_width/2
-            right_y = mouth_center_y + math.sin(angle - math.pi/2) * mouth_width/2
+            # Rotate mouth points based on worm's angle
+            left_x = x + (base_left_x * math.cos(angle) - base_left_y * math.sin(angle))
+            left_y = y + (base_left_x * math.sin(angle) + base_left_y * math.cos(angle))
+            right_x = x + (base_right_x * math.cos(angle) - base_right_y * math.sin(angle))
+            right_y = y + (base_right_x * math.sin(angle) + base_right_y * math.cos(angle))
             
-            # Calculate control point for curved mouth (adjusted for new position)
+            # Calculate control point for curved mouth
             curve_height = mouth_height * current_expression
-            control_x = mouth_center_x + math.cos(angle) * curve_height
-            control_y = mouth_center_y + math.sin(angle) * curve_height
+            base_control_x = 0
+            base_control_y = mouth_y_offset + curve_height
+            
+            control_x = x + (base_control_x * math.cos(angle) - base_control_y * math.sin(angle))
+            control_y = y + (base_control_x * math.sin(angle) + base_control_y * math.cos(angle))
             
             # Draw curved mouth using quadratic Bezier
             points = [(int(left_x), int(left_y)), 
