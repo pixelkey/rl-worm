@@ -3,10 +3,13 @@ import random
 import math
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
+import time
+import os
 from collections import deque
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import argparse
 import argparse
 import time
 from datetime import datetime, timedelta
@@ -139,6 +142,12 @@ class WormGame:
         # Eye properties
         self.eye_size = int(self.head_size * 0.25)
         self.eye_offset = int(self.head_size * 0.3)
+        
+        # Expression properties
+        self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
+        self.expression_time = 0  # Time when expression was set
+        self.expression_duration = 2.0  # Duration in seconds before returning to neutral
+        self.last_time = time.time()  # For tracking time between frames
         
         # Hunger and growth mechanics
         self.max_hunger = 1000
@@ -317,23 +326,39 @@ class WormGame:
         if ate_plant:
             # Higher reward when hungrier
             hunger_ratio = 1 - (self.hunger / self.max_hunger)
-            reward += 10.0 * (1 + hunger_ratio)  # Base reward ranges from 10 to 20 based on hunger
+            base_reward = 10.0 * (1 + hunger_ratio)  # Base reward ranges from 10 to 20 based on hunger
+            reward += base_reward
             
             # Extra reward for growing
+            growth_reward = 0
             if self.num_segments > len(self.positions) - 1:  # If we grew
-                reward += 5.0  # Bonus for growing
+                growth_reward = 5.0  # Bonus for growing
+                reward += growth_reward
+            
+            # Set happy expression scaled by total reward (normalize to 0-1 range, assuming max reward ~25)
+            total_reward = base_reward + growth_reward
+            self.expression = min(1.0, total_reward / 25.0)
+            self.expression_time = time.time()
                 
         # Penalty for hitting walls
         if wall_collision:
-            reward -= 1.0
+            wall_penalty = -1.0
+            reward += wall_penalty
+            # Set sad expression scaled by penalty (normalize to -1 to 0 range)
+            self.expression = max(-1.0, wall_penalty / -2.0)  # -2.0 is considered max penalty
+            self.expression_time = time.time()
             
         # Penalty for sharp turns
         action_diff = abs(action - self.prev_action)
         if action_diff > 4:  # If turning more than 180 degrees
             action_diff = 8 - action_diff  # Use smaller angle
         if action_diff > 2:  # Penalize turns sharper than 90 degrees
-            reward -= 0.5 * (action_diff - 2)  # Progressive penalty for sharper turns
-            
+            turn_penalty = -0.5 * (action_diff - 2)  # Progressive penalty for sharper turns
+            reward += turn_penalty
+            # Set sad expression scaled by turn penalty
+            self.expression = max(-1.0, turn_penalty / -2.0)  # Scale to -1 to 0 range
+            self.expression_time = time.time()
+        
         self.prev_action = action
         
         # Get state and additional info
@@ -451,36 +476,74 @@ class WormGame:
         x, y = pos
         
         # Draw main body circle
-        radius = width if not is_head else self.head_size
-        pygame.draw.circle(self.game_surface, color, (int(x), int(y)), int(radius))
+        pygame.draw.circle(self.game_surface, color, (int(x), int(y)), width)
         
-        # Draw eyes if head
-        if is_head and not self.headless:
-            # Calculate eye positions based on angle
-            cos_a = math.cos(angle)
-            sin_a = math.sin(angle)
+        if is_head:
+            # Calculate eye positions (rotate around head center)
+            eye_angle_spread = math.pi/2.5  # Increased spread between eyes
+            left_eye_x = x + math.cos(angle + eye_angle_spread) * self.eye_offset
+            left_eye_y = y + math.sin(angle + eye_angle_spread) * self.eye_offset
+            right_eye_x = x + math.cos(angle - eye_angle_spread) * self.eye_offset
+            right_eye_y = y + math.sin(angle - eye_angle_spread) * self.eye_offset
             
-            # Draw eyes (white circles)
-            eye_radius = self.eye_size
-            eye_x = x + self.eye_offset * cos_a - self.eye_offset * sin_a
-            eye_y = y + self.eye_offset * sin_a + self.eye_offset * cos_a
-            pygame.draw.circle(self.game_surface, self.eye_color, (int(eye_x), int(eye_y)), eye_radius)
+            # Draw eyes (white part)
+            pygame.draw.circle(self.game_surface, self.eye_color, 
+                            (int(left_eye_x), int(left_eye_y)), self.eye_size)
+            pygame.draw.circle(self.game_surface, self.eye_color,
+                            (int(right_eye_x), int(right_eye_y)), self.eye_size)
             
-            eye_x = x + self.eye_offset * cos_a + self.eye_offset * sin_a
-            eye_y = y + self.eye_offset * sin_a - self.eye_offset * cos_a
-            pygame.draw.circle(self.game_surface, self.eye_color, (int(eye_x), int(eye_y)), eye_radius)
+            # Draw pupils (black part)
+            pupil_size = self.eye_size // 2
+            pygame.draw.circle(self.game_surface, self.pupil_color,
+                            (int(left_eye_x), int(left_eye_y)), pupil_size)
+            pygame.draw.circle(self.game_surface, self.pupil_color,
+                            (int(right_eye_x), int(right_eye_y)), pupil_size)
             
-            # Draw pupils (black circles)
-            pupil_radius = int(eye_radius * 0.5)
-            pupil_offset = eye_radius * 0.3  # Pupils slightly forward-looking
+            # Update expression timing
+            current_time = time.time()
+            dt = current_time - self.last_time
+            self.last_time = current_time
             
-            pupil_x = x + (self.eye_offset + pupil_offset) * cos_a - self.eye_offset * sin_a
-            pupil_y = y + (self.eye_offset + pupil_offset) * sin_a + self.eye_offset * cos_a
-            pygame.draw.circle(self.game_surface, self.pupil_color, (int(pupil_x), int(pupil_y)), pupil_radius)
+            # Calculate expression interpolation
+            if self.expression != 0:
+                time_since_expression = current_time - self.expression_time
+                if time_since_expression < self.expression_duration:
+                    # Smoothly interpolate back to neutral
+                    t = time_since_expression / self.expression_duration
+                    current_expression = self.expression * (1 - t)
+                else:
+                    self.expression = 0
+                    current_expression = 0
+            else:
+                current_expression = 0
             
-            pupil_x = x + (self.eye_offset + pupil_offset) * cos_a + self.eye_offset * sin_a
-            pupil_y = y + (self.eye_offset + pupil_offset) * sin_a - self.eye_offset * cos_a
-            pygame.draw.circle(self.game_surface, self.pupil_color, (int(pupil_x), int(pupil_y)), pupil_radius)
+            # Draw mouth (moved forward and down from eyes)
+            mouth_width = self.head_size * 0.5  # Slightly smaller mouth
+            mouth_height = self.head_size * 0.2
+            mouth_forward_offset = self.head_size * 0.4  # Move mouth forward
+            mouth_down_offset = self.head_size * 0.2    # Move mouth down relative to direction
+            
+            # Calculate mouth center with both forward and downward offset
+            mouth_angle = angle + math.pi/2  # Perpendicular to movement direction for "down"
+            mouth_center_x = x + math.cos(angle) * mouth_forward_offset + math.cos(mouth_angle) * mouth_down_offset
+            mouth_center_y = y + math.sin(angle) * mouth_forward_offset + math.sin(mouth_angle) * mouth_down_offset
+            
+            # Calculate mouth points
+            left_x = mouth_center_x + math.cos(angle + math.pi/2) * mouth_width/2
+            left_y = mouth_center_y + math.sin(angle + math.pi/2) * mouth_width/2
+            right_x = mouth_center_x + math.cos(angle - math.pi/2) * mouth_width/2
+            right_y = mouth_center_y + math.sin(angle - math.pi/2) * mouth_width/2
+            
+            # Calculate control point for curved mouth (adjusted for new position)
+            curve_height = mouth_height * current_expression
+            control_x = mouth_center_x + math.cos(angle) * curve_height
+            control_y = mouth_center_y + math.sin(angle) * curve_height
+            
+            # Draw curved mouth using quadratic Bezier
+            points = [(int(left_x), int(left_y)), 
+                     (int(control_x), int(control_y)),
+                     (int(right_x), int(right_y))]
+            pygame.draw.lines(self.game_surface, self.pupil_color, False, points, 2)
     
     def _get_state(self):
         """Get the current state for the neural network"""
