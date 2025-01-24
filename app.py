@@ -678,8 +678,8 @@ class WormGame:
             green_val = int(150 - (100 * i / (self.max_segments - 1)))
             self.body_colors.append((70, green_val + 30, 20))
         
-        # Reset hunger
-        self.hunger = self.max_hunger
+        # Start with low hunger (30% of max) to encourage immediate food seeking
+        self.hunger = self.max_hunger * 0.3
         
         # Clear and respawn plants
         self.plants = []
