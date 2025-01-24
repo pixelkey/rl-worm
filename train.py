@@ -57,7 +57,8 @@ class WormAgent:
         self.action_size = action_size
         self.memory = deque(maxlen=100000)  # Increased from 50000
         self.batch_size = 4096  # Increased from 2048 for faster learning
-        self.training_steps_per_update = 4  # Added: multiple training steps per game step
+        self.training_steps_per_update = 1  # Single efficient update
+        self.training_frequency = 1  # Train every step
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
@@ -110,17 +111,19 @@ class WormAgent:
     def train(self):
         if len(self.memory) < self.batch_size:
             return
+            
+        # Sample batch all at once
+        indices = random.sample(range(len(self.memory)), self.batch_size)
+        batch = [self.memory[i] for i in indices]
         
-        minibatch = random.sample(self.memory, self.batch_size)
+        # Convert to tensors efficiently
+        states = torch.tensor([s[0] for s in batch], dtype=torch.float32, device=self.device)
+        actions = torch.tensor([s[1] for s in batch], dtype=torch.long, device=self.device)
+        rewards = torch.tensor([s[2] for s in batch], dtype=torch.float32, device=self.device)
+        next_states = torch.tensor([s[3] for s in batch], dtype=torch.float32, device=self.device)
+        dones = torch.tensor([s[4] for s in batch], dtype=torch.float32, device=self.device)
         
-        # Process entire batch on GPU at once
-        states = torch.FloatTensor([t[0] for t in minibatch]).to(self.device)
-        actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
-        rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
-        next_states = torch.FloatTensor([t[3] for t in minibatch]).to(self.device)
-        dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
-        
-        # Enable mixed precision training with new API
+        # Enable mixed precision training
         with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
             current_q = self.model(states).gather(1, actions.unsqueeze(1))
             
@@ -134,10 +137,7 @@ class WormAgent:
         self.optimizer.zero_grad()
         self.scaler.scale(loss).backward()
         self.scaler.unscale_(self.optimizer)
-        
-        # Gradient clipping to prevent exploding gradients
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-        
         self.scaler.step(self.optimizer)
         self.scaler.update()
         
@@ -194,6 +194,7 @@ def fast_training():
     analytics = WormAnalytics()
     
     steps_per_episode = MIN_STEPS
+    last_time = time.time()
     
     try:
         for episode in range(TRAINING_EPISODES):
@@ -206,7 +207,13 @@ def fast_training():
             episode_positions = set()
             wall_collisions = 0
             
+            # Track performance
+            training_time = 0
+            game_time = 0
+            
             for step in range(steps_per_episode):
+                step_start = time.time()
+                
                 # Get action and update game
                 action = agent.act(state)
                 next_state, info = game.step(action)
@@ -215,6 +222,8 @@ def fast_training():
                 reward = info.get('reward', 0)
                 done = not info['alive']
                 
+                game_time += time.time() - step_start
+                
                 # Track metrics
                 if info['ate_plant']:
                     plants_eaten += 1
@@ -222,13 +231,18 @@ def fast_training():
                     wall_collisions += 1
                 
                 # Track visited positions
-                head_pos = game.positions[0]  # Head is now at index 0
-                grid_size = game.game_width / 20  # Create a 20x20 grid
+                head_pos = game.positions[0]
+                grid_size = game.game_width / 20
                 grid_pos = (int(head_pos[0]/grid_size), int(head_pos[1]/grid_size))
                 episode_positions.add(grid_pos)
                 
                 # Store experience and train
                 agent.remember(state, action, reward, next_state, done)
+                
+                train_start = time.time()
+                if step % agent.training_frequency == 0 and len(agent.memory) >= agent.batch_size:
+                    loss = agent.train()
+                training_time += time.time() - train_start
                 
                 # Update state and metrics
                 state = next_state
@@ -238,18 +252,16 @@ def fast_training():
                 # Update target network periodically
                 if step % 1000 == 0:
                     agent.update_target_model()
-                    
-                # Train agent
-                for _ in range(agent.training_steps_per_update):
-                    loss = agent.train()
                 
                 # Break if done
                 if done:
                     break
             
             # Calculate metrics
-            exploration_ratio = len(episode_positions) / ((game.game_width//grid_size) * (game.game_height//grid_size))
-            metrics_data = {
+            exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  # Assuming we want to explore 25% of possible positions
+            
+            # Update analytics
+            metrics = {
                 'avg_reward': total_reward,
                 'wall_collisions': wall_collisions,
                 'exploration_ratio': exploration_ratio,
@@ -257,26 +269,30 @@ def fast_training():
                 'epsilon': agent.epsilon
             }
             
-            # Update analytics
-            analytics.update_metrics(episode, metrics_data)
+            analytics.update(metrics)
             
             # Save model periodically
             if episode % SAVE_INTERVAL == 0:
                 agent.save(episode)
-                analytics.generate_report(episode)
             
             # Update progress bar
             progress.update(episode + 1)
             
             # Print metrics periodically
             if episode % PRINT_INTERVAL == 0:
+                current_time = time.time()
+                episode_time = current_time - last_time
                 print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
                 print(f"Steps: {steps_survived}/{steps_per_episode}")
                 print(f"Reward: {total_reward:.2f}")
                 print(f"Plants: {plants_eaten}")
                 print(f"Explore: {exploration_ratio:.2f}")
                 print(f"Epsilon: {agent.epsilon:.3f}")
-                
+                print(f"Episode Time: {episode_time:.2f}s")
+                print(f"Game Time: {game_time:.2f}s")
+                print(f"Training Time: {training_time:.2f}s")
+                last_time = current_time
+            
             # Increase steps if performance improves
             if total_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS:
                 steps_per_episode += STEPS_INCREMENT
