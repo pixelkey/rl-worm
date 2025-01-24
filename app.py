@@ -177,16 +177,16 @@ class WormGame:
         self.height = self.game_height
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 10.0
-        self.REWARD_FOOD_HUNGER_SCALE = 2.0
-        self.REWARD_GROWTH = 8.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.2  # Increased from 0.1
-        self.REWARD_EXPLORATION = 0.05
+        self.REWARD_FOOD_BASE = 50.0  # Increased from 10.0
+        self.REWARD_FOOD_HUNGER_SCALE = 3.0  # Increased from 2.0
+        self.REWARD_GROWTH = 15.0  # Increased from 8.0
+        self.REWARD_SMOOTH_MOVEMENT = 0.1  # Decreased from 0.2
+        self.REWARD_EXPLORATION = 0.01  # Decreased from 0.05
         
-        self.PENALTY_WALL = -2.0
-        self.PENALTY_SHARP_TURN = -2.0  # Increased penalty for sharp turns
-        self.PENALTY_STARVATION_BASE = -0.1
-        self.PENALTY_DIRECTION_CHANGE = -0.5  # New penalty for changing direction
+        self.PENALTY_WALL = -5.0  # Increased from -2.0
+        self.PENALTY_SHARP_TURN = -1.0  # Decreased from -2.0
+        self.PENALTY_STARVATION_BASE = -0.2  # Increased from -0.1
+        self.PENALTY_DIRECTION_CHANGE = -0.2  # Decreased from -0.5
         
         # Expression scaling
         self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
@@ -714,13 +714,13 @@ class WormAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=50000)
-        self.batch_size = 2048
+        self.memory = deque(maxlen=100000)  # Increased memory size
+        self.batch_size = 64  # Much smaller batch size
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
-        self.learning_rate = 0.001
+        self.epsilon_min = 0.05  # Slightly higher min exploration
+        self.epsilon_decay = 0.9995  # Much slower decay
+        self.learning_rate = 0.0005  # Slightly lower learning rate
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         
@@ -750,11 +750,9 @@ class WormAgent:
     
     def _build_model(self):
         return nn.Sequential(
-            nn.Linear(self.state_size, 256),
+            nn.Linear(self.state_size, 128),
             nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(128, 128),
             nn.ReLU(),
             nn.Linear(128, self.action_size)
         )
