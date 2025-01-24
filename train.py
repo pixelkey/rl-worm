@@ -12,13 +12,17 @@ import time
 from datetime import datetime, timedelta
 import sys
 from app import WormGame
+import torch.amp
 
 # Initialize pygame (headless mode)
 pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-STEPS_PER_EPISODE = 5000  # Increased from 2000 to give more learning time
+MIN_STEPS = 2000  # Start with 2000 steps
+MAX_STEPS = 5000  # Maximum steps per episode
+STEPS_INCREMENT = 100  # How many steps to add when performance improves
+PERFORMANCE_THRESHOLD = -100  # Reward threshold to increase steps
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
 
@@ -51,14 +55,19 @@ class WormAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=50000)
-        self.batch_size = 2048
+        self.memory = deque(maxlen=100000)  # Increased from 50000
+        self.batch_size = 4096  # Increased from 2048 for faster learning
+        self.training_steps_per_update = 4  # Added: multiple training steps per game step
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.995
         self.learning_rate = 0.001
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Initialize mixed precision scaler with new API
+        self.scaler = torch.amp.GradScaler(device_type='cuda')
+        
         print(f"Using device: {self.device}")
         
         if torch.cuda.is_available():
@@ -71,29 +80,19 @@ class WormAgent:
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=True)
         
         # Try to load saved model
-        try:
-            checkpoint = torch.load('models/saved/worm_model.pth')
-            if checkpoint['state_size'] == state_size:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.epsilon = checkpoint['epsilon']
-                print(f"Loaded training state. Epsilon: {self.epsilon:.4f}")
-            else:
-                print("Old model architecture detected, starting fresh")
-        except:
-            print("No saved model found, starting fresh")
-            
-        self.target_model.load_state_dict(self.model.state_dict())
+        self.load()
     
     def _build_model(self):
         return nn.Sequential(
-            nn.Linear(self.state_size, 256),
+            nn.Linear(self.state_size, 512),  # Increased from 256
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Dropout(0.1),  # Added dropout for regularization
+            nn.Linear(512, 512),  # Increased from 256
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Dropout(0.1),
+            nn.Linear(512, 256),  # Increased from 128
             nn.ReLU(),
-            nn.Linear(128, self.action_size)
+            nn.Linear(256, self.action_size)
         )
     
     def remember(self, state, action, reward, next_state, done):
@@ -114,22 +113,33 @@ class WormAgent:
         
         minibatch = random.sample(self.memory, self.batch_size)
         
+        # Process entire batch on GPU at once
         states = torch.FloatTensor([t[0] for t in minibatch]).to(self.device)
         actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
         rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
         next_states = torch.FloatTensor([t[3] for t in minibatch]).to(self.device)
         dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
         
-        current_q = self.model(states).gather(1, actions.unsqueeze(1))
+        # Enable mixed precision training with new API
+        with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
+            current_q = self.model(states).gather(1, actions.unsqueeze(1))
+            
+            with torch.no_grad():
+                next_q = self.target_model(next_states).max(1)[0]
+                target_q = rewards + (1 - dones) * self.gamma * next_q
+            
+            loss = nn.MSELoss()(current_q.squeeze(), target_q)
         
-        with torch.no_grad():
-            next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + (1 - dones) * self.gamma * next_q
-        
-        loss = nn.MSELoss()(current_q.squeeze(), target_q)
+        # Optimizer steps with gradient scaling
         self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        self.scaler.scale(loss).backward()
+        self.scaler.unscale_(self.optimizer)
+        
+        # Gradient clipping to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
         
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
@@ -140,13 +150,32 @@ class WormAgent:
         self.target_model.load_state_dict(self.model.state_dict())
     
     def save(self, episode):
+        # Save only the model weights to prevent pickle security issues
+        model_path = f'models/saved/worm_model.pth'
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'scaler_state_dict': self.scaler.state_dict(),
             'epsilon': self.epsilon,
             'state_size': self.state_size
-        }, f'models/saved/worm_model.pth')
+        }, model_path)
         print(f"Saved model state at episode {episode}")
+        
+    def load(self):
+        try:
+            model_path = 'models/saved/worm_model.pth'
+            checkpoint = torch.load(model_path, map_location=self.device)
+            if checkpoint['state_size'] == self.state_size:
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                if 'scaler_state_dict' in checkpoint:
+                    self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
+                self.epsilon = checkpoint['epsilon']
+                print(f"Loaded training state. Epsilon: {self.epsilon:.4f}")
+            else:
+                print("Old model architecture detected, starting fresh")
+        except:
+            print("No saved model found, starting fresh")
 
 def fast_training():
     print("\nStarting fast training mode...")
@@ -161,6 +190,8 @@ def fast_training():
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
+    steps_per_episode = MIN_STEPS
+    
     try:
         for episode in range(TRAINING_EPISODES):
             # Initialize game state
@@ -172,7 +203,7 @@ def fast_training():
             episode_positions = set()
             wall_collisions = 0
             
-            for step in range(STEPS_PER_EPISODE):
+            for step in range(steps_per_episode):
                 # Get action and update game
                 action = agent.act(state)
                 next_state, info = game.step(action)
@@ -195,7 +226,6 @@ def fast_training():
                 
                 # Store experience and train
                 agent.remember(state, action, reward, next_state, done)
-                loss = agent.train()
                 
                 # Update state and metrics
                 state = next_state
@@ -206,6 +236,10 @@ def fast_training():
                 if step % 1000 == 0:
                     agent.update_target_model()
                     
+                # Train agent
+                for _ in range(agent.training_steps_per_update):
+                    loss = agent.train()
+                
                 # Break if done
                 if done:
                     break
@@ -216,7 +250,7 @@ def fast_training():
                 'avg_reward': total_reward,
                 'wall_collisions': wall_collisions,
                 'exploration_ratio': exploration_ratio,
-                'movement_smoothness': steps_survived / STEPS_PER_EPISODE,
+                'movement_smoothness': steps_survived / steps_per_episode,
                 'epsilon': agent.epsilon
             }
             
@@ -234,11 +268,16 @@ def fast_training():
             # Print metrics periodically
             if episode % PRINT_INTERVAL == 0:
                 print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
-                print(f"Steps: {steps_survived}/{STEPS_PER_EPISODE}")
+                print(f"Steps: {steps_survived}/{steps_per_episode}")
                 print(f"Reward: {total_reward:.2f}")
                 print(f"Plants: {plants_eaten}")
                 print(f"Explore: {exploration_ratio:.2f}")
                 print(f"Epsilon: {agent.epsilon:.3f}")
+                
+            # Increase steps if performance improves
+            if total_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS:
+                steps_per_episode += STEPS_INCREMENT
+                print(f"Steps increased to {steps_per_episode}")
                 
     except KeyboardInterrupt:
         print("\nTraining interrupted! Saving progress...")
