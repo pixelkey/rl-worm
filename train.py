@@ -18,7 +18,7 @@ pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-STEPS_PER_EPISODE = 2000
+STEPS_PER_EPISODE = 5000  # Increased from 2000 to give more learning time
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
 

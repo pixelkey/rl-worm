@@ -152,13 +152,16 @@ class WormGame:
         # Hunger and growth mechanics
         self.max_hunger = 1000
         self.hunger = self.max_hunger
-        self.hunger_rate = 0.5
+        self.base_hunger_rate = 0.1
+        self.current_hunger_rate = self.base_hunger_rate
         self.hunger_gain_from_plant = 300
         
         # Plant mechanics
         self.plants = []
-        self.plant_spawn_rate = 0.02
-        self.max_plants = 5
+        self.base_plant_spawn_chance = 0.02
+        self.current_plant_spawn_chance = self.base_plant_spawn_chance
+        self.base_max_plants = 5
+        self.current_max_plants = self.base_max_plants
         
         # Colors
         self.head_color = (150, 50, 50)  # Reddish
@@ -177,7 +180,7 @@ class WormGame:
         self.reset()
 
     def spawn_plant(self):
-        if len(self.plants) < self.max_plants and random.random() < self.plant_spawn_rate:
+        if len(self.plants) < self.current_max_plants and random.random() < self.current_plant_spawn_chance:
             margin = self.game_height // 10
             x = random.randint(margin, self.game_width - margin)
             y = random.randint(margin, self.game_height - margin)
@@ -229,7 +232,7 @@ class WormGame:
         
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
-        self.hunger = max(0, self.hunger - self.hunger_rate)
+        self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
         # Calculate shrinking probability based on hunger level
         hunger_ratio = self.hunger / self.max_hunger
@@ -250,58 +253,49 @@ class WormGame:
         
     def step(self, action):
         """Execute one time step within the environment"""
-        # Convert action to target angle
-        self.target_angle = action * (2 * math.pi / 8)  # Convert to radians (8 possible directions)
+        # Update difficulty based on worm length
+        difficulty_factor = len(self.positions) / 5  # Every 5 segments increases difficulty
+        self.current_hunger_rate = self.base_hunger_rate * (1 + difficulty_factor * 0.2)  # 20% faster hunger per difficulty level
+        self.current_plant_spawn_chance = self.base_plant_spawn_chance / (1 + difficulty_factor * 0.1)  # 10% fewer plants per difficulty level
+        self.current_max_plants = max(2, self.base_max_plants - int(difficulty_factor))  # Reduce max plants but keep at least 2
         
-        # Smoothly interpolate current angle towards target angle
-        angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
-        if abs(angle_diff) > self.angular_speed:
-            if angle_diff > 0:
-                self.angle += self.angular_speed
-            else:
-                self.angle -= self.angular_speed
-        else:
-            self.angle = self.target_angle
-            
-        # Normalize angle
-        self.angle = self.angle % (2 * math.pi)
+        # Store previous state for reward calculation
+        prev_hunger = self.hunger
+        prev_num_segments = len(self.positions)
         
-        # Previous position for movement calculations
-        prev_x = self.x
-        prev_y = self.y
+        # Execute action
+        action_angle = (action / 8) * 2 * math.pi
+        dx = math.cos(action_angle) * self.speed
+        dy = math.sin(action_angle) * self.speed
         
-        # Calculate movement
-        dx = math.cos(self.angle) * self.speed
-        dy = math.sin(self.angle) * self.speed
-        
-        # Update position
-        self.x += dx
-        self.y += dy
+        # Update head position (now at index 0)
+        new_head_x = self.positions[0][0] + dx
+        new_head_y = self.positions[0][1] + dy
         
         # Check wall collisions and constrain position
         wall_collision = False
         margin = self.head_size
-        if self.x < margin:
-            self.x = margin
+        if new_head_x < margin:
+            new_head_x = margin
             wall_collision = True
-        elif self.x > self.width - margin:
-            self.x = self.width - margin
+        elif new_head_x > self.width - margin:
+            new_head_x = self.width - margin
             wall_collision = True
-        if self.y < margin:
-            self.y = margin
+        if new_head_y < margin:
+            new_head_y = margin
             wall_collision = True
-        elif self.y > self.height - margin:
-            self.y = self.height - margin
+        elif new_head_y > self.height - margin:
+            new_head_y = self.height - margin
             wall_collision = True
             
         # Always update head position
         if len(self.positions) == 0:
-            self.positions.append((self.x, self.y))
+            self.positions.append((new_head_x, new_head_y))
         else:
             # Only update if position has changed
             current_head = self.positions[0]
-            if (self.x, self.y) != current_head:
-                self.positions.insert(0, (self.x, self.y))
+            if (new_head_x, new_head_y) != current_head:
+                self.positions.insert(0, (new_head_x, new_head_y))
                 # Remove last position if we have too many
                 if len(self.positions) > self.num_segments:
                     self.positions.pop()
@@ -309,7 +303,7 @@ class WormGame:
         # Ensure we maintain the correct number of body segments
         while len(self.positions) < self.num_segments:
             # If we don't have enough positions, duplicate the last one
-            last_pos = self.positions[-1] if self.positions else (self.x, self.y)
+            last_pos = self.positions[-1] if self.positions else (new_head_x, new_head_y)
             self.positions.append(last_pos)
         
         # Update plants and check collisions
@@ -360,7 +354,7 @@ class WormGame:
         if wall_collision:
             wall_penalty = -2.0  # Increased from -1.0
             reward += wall_penalty
-            self.expression = max(-1.0, wall_penalty / -2.0)
+            self.expression = -0.8  # Fixed expression - always frown on wall collision
             self.expression_time = time.time()
             
         # Smoother movement rewards
@@ -370,7 +364,7 @@ class WormGame:
         if action_diff > 2:  # Penalize turns sharper than 90 degrees
             turn_penalty = -1.0 * (action_diff - 2)  # Increased penalty for sharp turns
             reward += turn_penalty
-            self.expression = max(-1.0, turn_penalty / -2.0)
+            self.expression = -0.5  # Fixed expression - mild frown for sharp turns
             self.expression_time = time.time()
         else:
             # Small reward for smooth movement
@@ -692,7 +686,7 @@ class WormGame:
         
         # Clear and respawn plants
         self.plants = []
-        for _ in range(self.max_plants):
+        for _ in range(self.current_max_plants):
             self.spawn_plant()
             
         # Get initial state
@@ -700,7 +694,7 @@ class WormGame:
         
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
-        self.hunger = max(0, self.hunger - self.hunger_rate)
+        self.hunger = max(0, self.hunger - self.current_hunger_rate)
         
         # Calculate shrinking probability based on hunger level
         hunger_ratio = self.hunger / self.max_hunger
