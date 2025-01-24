@@ -319,46 +319,80 @@ class WormGame:
         # Update hunger
         alive = self.update_hunger()
         
-        # Calculate reward
+        # Calculate reward using Maslow's hierarchy
         reward = 0
         
-        # Reward for eating plants and growing
+        # 1. Physiological Needs (Survival) - Highest Priority
+        # Exponential scaling of food reward based on hunger
         if ate_plant:
-            # Higher reward when hungrier
             hunger_ratio = 1 - (self.hunger / self.max_hunger)
-            base_reward = 10.0 * (1 + hunger_ratio)  # Base reward ranges from 10 to 20 based on hunger
+            # Exponential reward: ranges from 10 when full to 30 when starving
+            base_reward = 10.0 * (1 + 2 * hunger_ratio**2)  
             reward += base_reward
             
-            # Extra reward for growing
-            growth_reward = 0
-            if self.num_segments > len(self.positions) - 1:  # If we grew
-                growth_reward = 5.0  # Bonus for growing
-                reward += growth_reward
-            
-            # Set happy expression scaled by total reward (normalize to 0-1 range, assuming max reward ~25)
-            total_reward = base_reward + growth_reward
-            self.expression = min(1.0, total_reward / 25.0)
+            # Set happy expression scaled by reward
+            self.expression = min(1.0, base_reward / 30.0)
             self.expression_time = time.time()
-                
-        # Penalty for hitting walls
+
+        # Starvation penalties - exponentially increase as hunger decreases
+        hunger_ratio = self.hunger / self.max_hunger
+        if hunger_ratio < 0.5:  # Start penalties below 50% hunger
+            # Exponential penalty that grows stronger as hunger approaches 0
+            # At 50% hunger: -0.1 penalty
+            # At 25% hunger: -0.4 penalty
+            # At 10% hunger: -2.25 penalty
+            # At 1% hunger: -25 penalty
+            starvation_penalty = -0.1 * ((1 - hunger_ratio) / 0.5) ** 2
+            reward += starvation_penalty
+            
+            # Show distress when starving
+            if hunger_ratio < 0.2:  # Very hungry
+                self.expression = max(-1.0, starvation_penalty / -10.0)
+                self.expression_time = time.time()
+        
+        # Small penalty for being very hungry (encourages proactive eating)
+        if self.hunger < self.max_hunger * 0.2:  # When below 20% hunger
+            hunger_penalty = -0.1 * (1 - self.hunger / (self.max_hunger * 0.2))
+            reward += hunger_penalty
+        
+        # 2. Safety Needs - Second Priority
+        # Stronger wall collision penalty
         if wall_collision:
-            wall_penalty = -1.0
+            wall_penalty = -2.0  # Increased from -1.0
             reward += wall_penalty
-            # Set sad expression scaled by penalty (normalize to -1 to 0 range)
-            self.expression = max(-1.0, wall_penalty / -2.0)  # -2.0 is considered max penalty
+            self.expression = max(-1.0, wall_penalty / -2.0)
             self.expression_time = time.time()
             
-        # Penalty for sharp turns
+        # Smoother movement rewards
         action_diff = abs(action - self.prev_action)
         if action_diff > 4:  # If turning more than 180 degrees
             action_diff = 8 - action_diff  # Use smaller angle
         if action_diff > 2:  # Penalize turns sharper than 90 degrees
-            turn_penalty = -0.5 * (action_diff - 2)  # Progressive penalty for sharper turns
+            turn_penalty = -1.0 * (action_diff - 2)  # Increased penalty for sharp turns
             reward += turn_penalty
-            # Set sad expression scaled by turn penalty
-            self.expression = max(-1.0, turn_penalty / -2.0)  # Scale to -1 to 0 range
+            self.expression = max(-1.0, turn_penalty / -2.0)
             self.expression_time = time.time()
+        else:
+            # Small reward for smooth movement
+            smooth_reward = 0.1 * (1 - action_diff/2)  # Max 0.1 when moving straight
+            reward += smooth_reward
         
+        # 3. Growth and Self-Actualization - Third Priority
+        # Only give growth rewards when basic needs are met
+        if ate_plant and self.hunger > self.max_hunger * 0.5:  # Only when above 50% hunger
+            if self.num_segments > len(self.positions) - 1:  # If we grew
+                growth_reward = 8.0  # Increased from 5.0
+                reward += growth_reward
+                # Extra happiness for growing while healthy
+                self.expression = min(1.0, (base_reward + growth_reward) / 35.0)
+                self.expression_time = time.time()
+        
+        # 4. Exploration Reward - Lowest Priority
+        # Small reward for moving when not hungry
+        if self.hunger > self.max_hunger * 0.8:  # Only when above 80% hunger
+            movement_reward = 0.05  # Tiny reward for exploration
+            reward += movement_reward
+            
         self.prev_action = action
         
         # Get state and additional info
