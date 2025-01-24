@@ -65,8 +65,8 @@ class WormAgent:
         self.learning_rate = 0.001
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Initialize mixed precision scaler with new API
-        self.scaler = torch.amp.GradScaler(device_type='cuda')
+        # Initialize mixed precision scaler
+        self.scaler = torch.amp.GradScaler()
         
         print(f"Using device: {self.device}")
         
@@ -176,7 +176,10 @@ class WormAgent:
                 print("Old model architecture detected, starting fresh")
         except:
             print("No saved model found, starting fresh")
-
+            
+        # Always sync target model with main model after loading
+        self.target_model.load_state_dict(self.model.state_dict())
+    
 def fast_training():
     print("\nStarting fast training mode...")
     print("Press Ctrl+C at any time to stop training and save progress\n")
