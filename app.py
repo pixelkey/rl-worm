@@ -176,6 +176,20 @@ class WormGame:
         self.width = self.game_width
         self.height = self.game_height
         
+        # Reward/Penalty constants
+        self.REWARD_FOOD_BASE = 10.0
+        self.REWARD_FOOD_HUNGER_SCALE = 2.0
+        self.REWARD_GROWTH = 8.0
+        self.REWARD_SMOOTH_MOVEMENT = 0.1
+        self.REWARD_EXPLORATION = 0.05
+        
+        self.PENALTY_WALL = -2.0
+        self.PENALTY_SHARP_TURN = -1.0
+        self.PENALTY_STARVATION_BASE = -0.1
+        
+        # Expression scaling
+        self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
+        
         # Initialize worm
         self.reset()
 
@@ -321,11 +335,11 @@ class WormGame:
         if ate_plant:
             hunger_ratio = 1 - (self.hunger / self.max_hunger)
             # Exponential reward: ranges from 10 when full to 30 when starving
-            base_reward = 10.0 * (1 + 2 * hunger_ratio**2)  
+            base_reward = self.REWARD_FOOD_BASE * (1 + self.REWARD_FOOD_HUNGER_SCALE * hunger_ratio**2)  
             reward += base_reward
             
-            # Set happy expression scaled by reward
-            self.expression = min(1.0, base_reward / 30.0)
+            # Set happy expression scaled by reward (10-30 reward → 0.4-1.0 expression)
+            self.expression = min(1.0, base_reward / self.EXPRESSION_SCALE)
             self.expression_time = time.time()
 
         # Starvation penalties - exponentially increase as hunger decreases
@@ -336,12 +350,12 @@ class WormGame:
             # At 25% hunger: -0.4 penalty
             # At 10% hunger: -2.25 penalty
             # At 1% hunger: -25 penalty
-            starvation_penalty = -0.1 * ((1 - hunger_ratio) / 0.5) ** 2
+            starvation_penalty = self.PENALTY_STARVATION_BASE * ((1 - hunger_ratio) / 0.5) ** 2
             reward += starvation_penalty
             
             # Show distress when starving
             if hunger_ratio < 0.2:  # Very hungry
-                self.expression = max(-1.0, starvation_penalty / -10.0)
+                self.expression = max(-1.0, starvation_penalty / self.EXPRESSION_SCALE)
                 self.expression_time = time.time()
         
         # Small penalty for being very hungry (encourages proactive eating)
@@ -352,9 +366,10 @@ class WormGame:
         # 2. Safety Needs - Second Priority
         # Stronger wall collision penalty
         if wall_collision:
-            wall_penalty = -2.0  # Increased from -1.0
+            wall_penalty = self.PENALTY_WALL  # Increased from -1.0
             reward += wall_penalty
-            self.expression = -0.8  # Fixed expression - always frown on wall collision
+            # Scale expression with penalty (-2.0 penalty → -0.8 expression)
+            self.expression = wall_penalty / self.EXPRESSION_SCALE
             self.expression_time = time.time()
             
         # Smoother movement rewards
@@ -362,29 +377,34 @@ class WormGame:
         if action_diff > 4:  # If turning more than 180 degrees
             action_diff = 8 - action_diff  # Use smaller angle
         if action_diff > 2:  # Penalize turns sharper than 90 degrees
-            turn_penalty = -1.0 * (action_diff - 2)  # Increased penalty for sharp turns
+            turn_penalty = self.PENALTY_SHARP_TURN  # Increased penalty for sharp turns
             reward += turn_penalty
-            self.expression = -0.5  # Fixed expression - mild frown for sharp turns
+            # Scale expression with turn penalty (-1.0 penalty → -0.4 expression)
+            self.expression = turn_penalty / self.EXPRESSION_SCALE
             self.expression_time = time.time()
         else:
             # Small reward for smooth movement
-            smooth_reward = 0.1 * (1 - action_diff/2)  # Max 0.1 when moving straight
+            smooth_reward = self.REWARD_SMOOTH_MOVEMENT * (1 - action_diff/2)  # Max 0.1 when moving straight
             reward += smooth_reward
+            # Tiny smile for smooth movement (0.1 reward → 0.04 expression)
+            if smooth_reward > 0:
+                self.expression = smooth_reward / self.EXPRESSION_SCALE
+                self.expression_time = time.time()
         
         # 3. Growth and Self-Actualization - Third Priority
         # Only give growth rewards when basic needs are met
         if ate_plant and self.hunger > self.max_hunger * 0.5:  # Only when above 50% hunger
             if self.num_segments > len(self.positions) - 1:  # If we grew
-                growth_reward = 8.0  # Increased from 5.0
+                growth_reward = self.REWARD_GROWTH  # Increased from 5.0
                 reward += growth_reward
                 # Extra happiness for growing while healthy
-                self.expression = min(1.0, (base_reward + growth_reward) / 35.0)
+                self.expression = min(1.0, (base_reward + growth_reward) / self.EXPRESSION_SCALE)
                 self.expression_time = time.time()
         
         # 4. Exploration Reward - Lowest Priority
         # Small reward for moving when not hungry
         if self.hunger > self.max_hunger * 0.8:  # Only when above 80% hunger
-            movement_reward = 0.05  # Tiny reward for exploration
+            movement_reward = self.REWARD_EXPLORATION  # Tiny reward for exploration
             reward += movement_reward
             
         self.prev_action = action
