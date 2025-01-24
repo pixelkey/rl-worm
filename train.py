@@ -188,8 +188,9 @@ def fast_training():
                     wall_collisions += 1
                 
                 # Track visited positions
-                head_pos = game.positions[-1]
-                grid_pos = (int(head_pos[0]/50), int(head_pos[1]/50))
+                head_pos = game.positions[0]  # Head is now at index 0
+                grid_size = game.game_width / 20  # Create a 20x20 grid
+                grid_pos = (int(head_pos[0]/grid_size), int(head_pos[1]/grid_size))
                 episode_positions.add(grid_pos)
                 
                 # Store experience and train
@@ -210,7 +211,7 @@ def fast_training():
                     break
             
             # Calculate metrics
-            exploration_ratio = len(episode_positions) / ((game.width//50) * (game.height//50))
+            exploration_ratio = len(episode_positions) / ((game.game_width//grid_size) * (game.game_height//grid_size))
             metrics_data = {
                 'avg_reward': total_reward,
                 'wall_collisions': wall_collisions,

@@ -23,83 +23,115 @@ class Plant:
     def __init__(self, x, y, game_size):
         self.x = x
         self.y = y
-        self.size = int(game_size/80)  # Plant size scales with game
+        self.size = int(game_size/40)  # Plant size scales with game
         self.max_lifetime = 500  # How long the plant lives
         self.lifetime = self.max_lifetime
         self.state = 'growing'  # growing, mature, wilting
         self.color = (0, 180, 0)  # Start with bright green
         
     def update(self):
+        """Update plant state based on lifetime"""
         self.lifetime -= 1
-        if self.lifetime <= 0:
-            return False  # Plant is dead
-            
-        # Update plant state and color based on lifetime
-        if self.lifetime > self.max_lifetime * 0.7:
+        life_ratio = self.lifetime / self.max_lifetime
+        
+        # Update state and color based on lifetime
+        if life_ratio > 0.7:  # First 30% of life
             self.state = 'growing'
-            growth_factor = (self.max_lifetime - self.lifetime) / (self.max_lifetime * 0.3)
-            self.color = (0, int(140 + 40 * growth_factor), 0)
-        elif self.lifetime > self.max_lifetime * 0.3:
+            green = int(180 * (life_ratio - 0.7) / 0.3)  # Fade in from black
+            self.color = (0, green, 0)
+        elif life_ratio > 0.3:  # Middle 40% of life
             self.state = 'mature'
-            self.color = (0, 180, 0)
-        else:
+            self.color = (0, 180, 0)  # Bright green
+        else:  # Last 30% of life
             self.state = 'wilting'
-            wilt_factor = self.lifetime / (self.max_lifetime * 0.3)
-            self.color = (int(139 * (1-wilt_factor)), int(69 * (1-wilt_factor)), 19)
+            green = int(180 * life_ratio / 0.3)  # Fade to brown
+            self.color = (100, green, 0)
             
-        return True
+        return self.lifetime > 0
         
     def draw(self, surface):
-        if self.state == 'growing':
-            size_factor = (self.max_lifetime - self.lifetime) / (self.max_lifetime * 0.3)
-            current_size = int(self.size * min(1.0, size_factor))
-        elif self.state == 'wilting':
-            wilt_factor = self.lifetime / (self.max_lifetime * 0.3)
-            current_size = int(self.size * wilt_factor)
-        else:
-            current_size = self.size
-            
+        """Draw the plant"""
         # Draw stem
-        stem_height = current_size * 2
-        pygame.draw.line(surface, (0, 100, 0), 
-                        (self.x, self.y + current_size),
-                        (self.x, self.y + current_size + stem_height), 2)
+        stem_height = self.size * 2
+        stem_width = max(2, self.size // 4)
+        stem_rect = pygame.Rect(self.x - stem_width//2, 
+                              self.y - stem_height//2,
+                              stem_width, stem_height)
+        pygame.draw.rect(surface, self.color, stem_rect)
         
-        # Draw plant head
-        pygame.draw.circle(surface, self.color, (self.x, self.y + current_size), current_size)
+        # Draw leaves
+        leaf_size = self.size
+        leaf_points = [
+            # Left leaf
+            [(self.x - leaf_size, self.y),
+             (self.x, self.y - leaf_size//2),
+             (self.x, self.y + leaf_size//2)],
+            # Right leaf
+            [(self.x + leaf_size, self.y),
+             (self.x, self.y - leaf_size//2),
+             (self.x, self.y + leaf_size//2)]
+        ]
+        
+        for points in leaf_points:
+            pygame.draw.polygon(surface, self.color, points)
+            # Draw leaf veins
+            pygame.draw.line(surface, (0, min(255, self.color[1] + 30), 0),
+                           points[1], points[0], max(1, stem_width//2))
+            pygame.draw.line(surface, (0, min(255, self.color[1] + 30), 0),
+                           points[2], points[0], max(1, stem_width//2))
 
 class WormGame:
     def __init__(self, headless=False):
         if headless:
             os.environ["SDL_VIDEODRIVER"] = "dummy"
+            
         pygame.init()
-        
-        # Set fixed dimensions for game area
-        self.screen_width = 800
-        self.screen_height = 600
         self.headless = headless
         
-        # Create game surface and screen only if not headless
+        # Set dimensions based on mode
+        if headless:
+            # Use smaller fixed dimensions for headless mode
+            self.screen_width = 800
+            self.screen_height = 600
+            self.game_width = 800
+            self.game_height = 600
+        else:
+            # Get display info for window sizing
+            display_info = pygame.display.Info()
+            screen_height = min(1600, display_info.current_h - 100)  # Doubled from 800
+            self.screen_width = int(screen_height * 1.2)  # 20% wider than height
+            self.screen_height = screen_height
+            
+            # Game area is 80% of screen height
+            self.game_width = int(self.screen_height * 0.8)
+            self.game_height = int(self.screen_height * 0.8)
+        
+        # Create game surface and screen based on mode
         if not headless:
             self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
             pygame.display.set_caption("AI Worm" + (" (Demo Mode)" if args.demo else ""))
         else:
             pygame.display.set_mode((1, 1))  # Minimal display for headless mode
             
-        self.game_surface = pygame.Surface((self.screen_width, self.screen_height))
+        # Create game surface for the actual play area
+        self.game_surface = pygame.Surface((self.game_width, self.game_height))
         
-        # Game area offset
-        self.game_x_offset = 0
-        self.game_y_offset = 0
+        # Calculate game area offset to center it
+        self.game_x_offset = (self.screen_width - self.game_width) // 2
+        self.game_y_offset = (self.screen_height - self.game_height) // 2
         
-        # Worm properties
-        self.segment_length = int(self.screen_height/60)
-        self.segment_width = int(self.screen_height/80)
+        # Worm properties - scale with game area
+        self.segment_length = int(self.game_height/20)  # Spacing between segments
+        self.segment_width = int(self.game_height/25)   # Size of body segments
         self.num_segments = 20
         self.max_segments = 30
-        self.min_segments = 10
-        self.head_size = int(self.screen_height/53)
-        self.spacing = 0.7
+        self.min_segments = 5
+        self.head_size = int(self.game_height/20)      # Size of head
+        self.spacing = 0.8  # Spacing between segments
+        
+        # Eye properties
+        self.eye_size = int(self.head_size * 0.25)
+        self.eye_offset = int(self.head_size * 0.3)
         
         # Hunger and growth mechanics
         self.max_hunger = 1000
@@ -113,35 +145,37 @@ class WormGame:
         self.max_plants = 5
         
         # Colors
-        self.head_color = (150, 50, 50)
+        self.head_color = (150, 50, 50)  # Reddish
+        self.eye_color = (255, 255, 255)  # White
+        self.pupil_color = (0, 0, 0)  # Black
         self.body_colors = []
-        for i in range(self.max_segments - 1):  # Pre-generate colors for max possible length
-            green_val = int(150 - (100 * i / (self.max_segments - 1)))
+        for i in range(self.max_segments):
+            green_val = int(150 - (100 * i / self.max_segments))
             self.body_colors.append((70, green_val + 30, 20))
         
-        # Game boundaries
-        self.width = self.screen_width
-        self.height = self.screen_height
+        # Game boundaries (use game area dimensions)
+        self.width = self.game_width
+        self.height = self.game_height
         
         # Initialize worm
         self.reset()
 
     def spawn_plant(self):
         if len(self.plants) < self.max_plants and random.random() < self.plant_spawn_rate:
-            margin = self.screen_height // 10
-            x = random.randint(margin, self.screen_width - margin)
-            y = random.randint(margin, self.screen_height - margin)
+            margin = self.game_height // 10
+            x = random.randint(margin, self.game_width - margin)
+            y = random.randint(margin, self.game_height - margin)
             
             # Check if too close to other plants
             too_close = False
             for plant in self.plants:
                 dist = math.sqrt((x - plant.x)**2 + (y - plant.y)**2)
-                if dist < self.screen_height // 8:
+                if dist < self.game_height // 8:
                     too_close = True
                     break
                     
             if not too_close:
-                self.plants.append(Plant(x, y, self.screen_height))
+                self.plants.append(Plant(x, y, self.game_height))
                 
     def update_plants(self):
         # Update existing plants
@@ -152,7 +186,8 @@ class WormGame:
         
     def check_plant_collision(self):
         """Check for collisions with plants and handle eating"""
-        head_rect = pygame.Rect(self.x - self.head_size/2, self.y - self.head_size/2, 
+        head_rect = pygame.Rect(self.positions[0][0] - self.head_size/2, 
+                              self.positions[0][1] - self.head_size/2,
                               self.head_size, self.head_size)
         
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
@@ -237,24 +272,9 @@ class WormGame:
         # Only update body if there was significant movement
         if move_dist > 0.1:  # Small threshold to prevent micro-movements
             # Update body segments
-            self.positions[0] = (self.x, self.y)
-            for i in range(1, len(self.positions)):
-                target_x = self.positions[i-1][0]
-                target_y = self.positions[i-1][1]
-                curr_x = self.positions[i][0]
-                curr_y = self.positions[i][1]
-                
-                # Calculate direction to target
-                dx = target_x - curr_x
-                dy = target_y - curr_y
-                dist = math.sqrt(dx*dx + dy*dy)
-                
-                # Move segment towards target, maintaining spacing
-                if dist > self.segment_width * self.spacing:
-                    move_ratio = (dist - self.segment_width * self.spacing) / dist
-                    new_x = curr_x + dx * move_ratio
-                    new_y = curr_y + dy * move_ratio
-                    self.positions[i] = (new_x, new_y)
+            self.positions.insert(0, (self.x, self.y))
+            if len(self.positions) > self.num_segments:
+                self.positions.pop()
         
         # Update plants and check collisions
         self.update_plants()
@@ -324,113 +344,135 @@ class WormGame:
         if surface is None and not self.headless:
             surface = pygame.display.get_surface()
             
-        # Clear game surface
+        # Clear game surface with a dark background
         if not self.headless:
-            self.game_surface.fill((50, 50, 50))
+            self.game_surface.fill((30, 30, 30))  # Darker background
+            
+            # Draw grid lines for visual reference
+            grid_spacing = self.game_height // 10
+            for i in range(0, self.game_width + grid_spacing, grid_spacing):
+                pygame.draw.line(self.game_surface, (40, 40, 40), (i, 0), (i, self.game_height))
+            for i in range(0, self.game_height + grid_spacing, grid_spacing):
+                pygame.draw.line(self.game_surface, (40, 40, 40), (0, i), (self.game_width, i))
         
         # Draw plants
         for plant in self.plants:
             if not self.headless:
                 plant.draw(self.game_surface)
         
-        # Draw worm segments
-        for i in range(1, len(self.positions)):
+        # Draw worm segments from tail to head
+        for i in range(len(self.positions)-1, 0, -1):
             pos = self.positions[i]
-            prev_pos = self.positions[i-1]
+            next_pos = self.positions[i-1]  # Next segment towards head
             
             # Calculate angle between segments
-            dx = pos[0] - prev_pos[0]
-            dy = pos[1] - prev_pos[1]
+            dx = next_pos[0] - pos[0]
+            dy = next_pos[1] - pos[1]
             angle = math.atan2(dy, dx)
             
             # Draw segment
             if not self.headless:
-                self._draw_segment(pos, angle, self.segment_width, self.body_colors[i-1])
+                self._draw_segment(pos, angle, self.segment_width, self.body_colors[i])
         
-        # Draw head (last segment) with special handling
-        head_pos = self.positions[-1]
+        # Draw head (first segment)
+        head_pos = self.positions[0]
         if len(self.positions) > 1:
-            prev_pos = self.positions[-2]
-            dx = head_pos[0] - prev_pos[0]
-            dy = head_pos[1] - prev_pos[1]
+            next_pos = self.positions[1]
+            dx = head_pos[0] - next_pos[0]  # Reversed to point outward
+            dy = head_pos[1] - next_pos[1]
             head_angle = math.atan2(dy, dx)
         else:
-            head_angle = 0
+            head_angle = self.angle
             
         # Draw head with slightly different appearance
         if not self.headless:
-            self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, (255, 100, 100), True)
+            self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, self.head_color, True)
         
         # Draw hunger meter
         if not self.headless:
-            meter_width = 200
-            meter_height = 20
-            meter_x = 10
-            meter_y = 10
+            meter_width = self.game_width // 4
+            meter_height = self.game_height // 20
+            meter_x = self.game_width // 20
+            meter_y = self.game_height // 20
             border_color = (200, 200, 200)
             
             # Calculate fill color based on hunger
-            red = min(255, max(0, int(255 * (1 - self.hunger / self.max_hunger))))
-            green = min(255, max(0, int(255 * self.hunger / self.max_hunger)))
-            fill_color = (red, green, 0)
+            hunger_ratio = self.hunger / self.max_hunger
+            if hunger_ratio > 0.6:
+                fill_color = (0, 255, 0)  # Green when full
+            elif hunger_ratio > 0.3:
+                fill_color = (255, 255, 0)  # Yellow when half
+            else:
+                fill_color = (255, 0, 0)  # Red when low
             
             # Draw border
-            pygame.draw.rect(self.game_surface, border_color, (meter_x, meter_y, meter_width, meter_height), 2)
+            pygame.draw.rect(self.game_surface, border_color, 
+                           (meter_x, meter_y, meter_width, meter_height), 2)
             
             # Draw fill
-            fill_width = max(0, min(meter_width, int(meter_width * self.hunger / self.max_hunger)))
-            pygame.draw.rect(self.game_surface, fill_color, (meter_x, meter_y, fill_width, meter_height))
+            fill_width = max(0, min(meter_width-4, int((meter_width-4) * hunger_ratio)))
+            pygame.draw.rect(self.game_surface, fill_color,
+                           (meter_x+2, meter_y+2, fill_width, meter_height-4))
+            
+            # Draw length indicator
+            length_text = f"Length: {self.num_segments}"
+            font = pygame.font.Font(None, self.game_height // 20)
+            text_surface = font.render(length_text, True, (200, 200, 200))
+            text_rect = text_surface.get_rect()
+            text_rect.topleft = (meter_x, meter_y + meter_height + 5)
+            self.game_surface.blit(text_surface, text_rect)
         
-        # Draw game surface to main surface
+        # Draw game area border
         if not self.headless:
+            # Clear screen
+            surface.fill((20, 20, 20))
+            
+            # Draw game surface onto main screen with offset
             surface.blit(self.game_surface, (self.game_x_offset, self.game_y_offset))
-        
-        # Draw border around game area
-        if not self.headless:
+            
+            # Draw border around game area
             pygame.draw.rect(surface, (100, 100, 100), 
-                            (self.game_x_offset-2, self.game_y_offset-2, 
-                             self.screen_width+4, self.screen_height+4), 2)
+                           (self.game_x_offset-2, self.game_y_offset-2, 
+                            self.game_width+4, self.game_height+4), 2)
         
         if not self.headless:
             pygame.display.flip()
-        
+    
     def _draw_segment(self, pos, angle, width, color, is_head=False):
         """Draw a single body segment"""
         x, y = pos
         
-        # Calculate rectangle points
-        length = self.segment_length
-        cos_a = math.cos(angle)
-        sin_a = math.sin(angle)
-        
-        # Calculate corners of the rectangle
-        points = [
-            (x - length/2 * cos_a - width/2 * sin_a,
-             y - length/2 * sin_a + width/2 * cos_a),
-            (x + length/2 * cos_a - width/2 * sin_a,
-             y + length/2 * sin_a + width/2 * cos_a),
-            (x + length/2 * cos_a + width/2 * sin_a,
-             y + length/2 * sin_a - width/2 * cos_a),
-            (x - length/2 * cos_a + width/2 * sin_a,
-             y - length/2 * sin_a - width/2 * cos_a)
-        ]
-        
-        if not self.headless:
-            pygame.draw.polygon(self.game_surface, color, points)
-        
-        # Draw outline
-        if not self.headless:
-            pygame.draw.lines(self.game_surface, (0, 0, 0), True, points, 2)
+        # Draw main body circle
+        radius = width if not is_head else self.head_size
+        pygame.draw.circle(self.game_surface, color, (int(x), int(y)), int(radius))
         
         # Draw eyes if head
         if is_head and not self.headless:
-            eye_radius = 3
-            eye_x = x - 5 * cos_a - 5 * sin_a
-            eye_y = y - 5 * sin_a + 5 * cos_a
-            pygame.draw.circle(self.game_surface, (0, 0, 0), (int(eye_x), int(eye_y)), eye_radius)
-            eye_x = x + 5 * cos_a - 5 * sin_a
-            eye_y = y + 5 * sin_a + 5 * cos_a
-            pygame.draw.circle(self.game_surface, (0, 0, 0), (int(eye_x), int(eye_y)), eye_radius)
+            # Calculate eye positions based on angle
+            cos_a = math.cos(angle)
+            sin_a = math.sin(angle)
+            
+            # Draw eyes (white circles)
+            eye_radius = self.eye_size
+            eye_x = x + self.eye_offset * cos_a - self.eye_offset * sin_a
+            eye_y = y + self.eye_offset * sin_a + self.eye_offset * cos_a
+            pygame.draw.circle(self.game_surface, self.eye_color, (int(eye_x), int(eye_y)), eye_radius)
+            
+            eye_x = x + self.eye_offset * cos_a + self.eye_offset * sin_a
+            eye_y = y + self.eye_offset * sin_a - self.eye_offset * cos_a
+            pygame.draw.circle(self.game_surface, self.eye_color, (int(eye_x), int(eye_y)), eye_radius)
+            
+            # Draw pupils (black circles)
+            pupil_radius = int(eye_radius * 0.5)
+            pupil_offset = eye_radius * 0.3  # Pupils slightly forward-looking
+            
+            pupil_x = x + (self.eye_offset + pupil_offset) * cos_a - self.eye_offset * sin_a
+            pupil_y = y + (self.eye_offset + pupil_offset) * sin_a + self.eye_offset * cos_a
+            pygame.draw.circle(self.game_surface, self.pupil_color, (int(pupil_x), int(pupil_y)), pupil_radius)
+            
+            pupil_x = x + (self.eye_offset + pupil_offset) * cos_a + self.eye_offset * sin_a
+            pupil_y = y + (self.eye_offset + pupil_offset) * sin_a - self.eye_offset * cos_a
+            pygame.draw.circle(self.game_surface, self.pupil_color, (int(pupil_x), int(pupil_y)), pupil_radius)
     
     def _get_state(self):
         """Get the current state for the neural network"""
@@ -447,8 +489,8 @@ class WormGame:
         # Add velocity components
         if len(self.positions) > 1:
             prev_x, prev_y = self.positions[1]
-            vel_x = (self.x - prev_x) / self.speed
-            vel_y = (self.y - prev_y) / self.speed
+            vel_x = (self.x - prev_x) / self.segment_length
+            vel_y = (self.y - prev_y) / self.segment_length
         else:
             vel_x = vel_y = 0
         
@@ -476,7 +518,7 @@ class WormGame:
                     plant_state = 3
                     
         # Normalize values
-        closest_dist = min(1.0, closest_dist / self.screen_height)
+        closest_dist = min(1.0, closest_dist / self.game_height)
         closest_angle = (closest_angle + math.pi) / (2 * math.pi)  # Normalize to [0,1]
         
         # Add plant and hunger info to state
