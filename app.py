@@ -120,6 +120,13 @@ class WormGame:
         self.game_x_offset = (self.screen_width - self.game_width) // 2
         self.game_y_offset = (self.screen_height - self.game_height) // 2
         
+        # Movement properties
+        self.angle = 0  # Current angle
+        self.target_angle = 0  # Target angle
+        self.angular_speed = 0.15  # How fast we can turn
+        self.speed = 5.0  # Movement speed
+        self.prev_action = 4  # Previous action (start with no movement)
+        
         # Worm properties - scale with game area
         self.segment_length = int(self.game_height/20)  # Spacing between segments
         self.segment_width = int(self.game_height/25)   # Size of body segments
@@ -234,17 +241,29 @@ class WormGame:
         
     def step(self, action):
         """Execute one time step within the environment"""
-        # Convert action to movement
-        angle = action * (2 * math.pi / 8)  # Convert to radians (8 possible directions)
-        speed = 5.0  # Fixed speed
+        # Convert action to target angle
+        self.target_angle = action * (2 * math.pi / 8)  # Convert to radians (8 possible directions)
         
-        # Calculate movement
-        dx = math.cos(angle) * speed
-        dy = math.sin(angle) * speed
+        # Smoothly interpolate current angle towards target angle
+        angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
+        if abs(angle_diff) > self.angular_speed:
+            if angle_diff > 0:
+                self.angle += self.angular_speed
+            else:
+                self.angle -= self.angular_speed
+        else:
+            self.angle = self.target_angle
+            
+        # Normalize angle
+        self.angle = self.angle % (2 * math.pi)
         
         # Previous position for movement calculations
         prev_x = self.x
         prev_y = self.y
+        
+        # Calculate movement
+        dx = math.cos(self.angle) * self.speed
+        dy = math.sin(self.angle) * self.speed
         
         # Update position
         self.x += dx
@@ -299,42 +318,23 @@ class WormGame:
         # Penalty for hitting walls
         if wall_collision:
             reward -= 1.0
-        
-        # Penalty for shrinking (more severe as we get shorter)
-        if self.num_segments < len(self.positions) - 1:  # If we shrunk
-            # Penalty increases as we get shorter
-            length_ratio = self.num_segments / self.max_segments
-            reward -= 2.0 * (1 + (1 - length_ratio))  # Penalty ranges from 2 to 4
-        
-        # Small reward for moving towards closest plant, bigger when hungry
-        closest_plant = None
-        min_dist = float('inf')
-        for plant in self.plants:
-            dist = math.sqrt((self.x - plant.x)**2 + (self.y - plant.y)**2)
-            if dist < min_dist:
-                min_dist = dist
-                closest_plant = plant
-                
-        if closest_plant:
-            prev_dist = math.sqrt((prev_x - closest_plant.x)**2 + (prev_y - closest_plant.y)**2)
-            curr_dist = math.sqrt((self.x - closest_plant.x)**2 + (self.y - closest_plant.y)**2)
-            if curr_dist < prev_dist:
-                hunger_ratio = 1 - (self.hunger / self.max_hunger)
-                reward += 0.2 * (1 + hunger_ratio)  # Reward ranges from 0.2 to 0.4 based on hunger
-        
-        # Penalty for being very hungry (increases as hunger decreases)
-        if self.hunger < self.max_hunger * 0.5:  # Below 50% hunger
-            hunger_ratio = self.hunger / self.max_hunger
-            reward -= 0.2 * (1 - hunger_ratio)  # Penalty ranges from 0 to 0.2
+            
+        # Penalty for sharp turns
+        action_diff = abs(action - self.prev_action)
+        if action_diff > 4:  # If turning more than 180 degrees
+            action_diff = 8 - action_diff  # Use smaller angle
+        if action_diff > 2:  # Penalize turns sharper than 90 degrees
+            reward -= 0.5 * (action_diff - 2)  # Progressive penalty for sharper turns
+            
+        self.prev_action = action
         
         # Get state and additional info
         state = self._get_state()
         info = {
-            'wall_collision': wall_collision,
-            'ate_plant': ate_plant,
-            'hunger': self.hunger / self.max_hunger,
+            'reward': reward,
             'alive': alive,
-            'reward': reward  # Add reward to info
+            'ate_plant': ate_plant,
+            'wall_collision': wall_collision
         }
         
         return state, info
@@ -476,17 +476,15 @@ class WormGame:
     
     def _get_state(self):
         """Get the current state for the neural network"""
-        # Normalize positions to [0,1] range
-        norm_x = self.x / self.width
-        norm_y = self.y / self.height
+        # Calculate distances to walls
+        wall_dists = [
+            self.x,  # Distance to left wall
+            self.width - self.x,  # Distance to right wall
+            self.y,  # Distance to top wall
+            self.height - self.y  # Distance to bottom wall
+        ]
         
-        # Calculate normalized distances to walls
-        dist_right = (self.width - self.x) / self.width
-        dist_left = self.x / self.width
-        dist_bottom = (self.height - self.y) / self.height
-        dist_top = self.y / self.height
-        
-        # Add velocity components
+        # Calculate velocity
         if len(self.positions) > 1:
             prev_x, prev_y = self.positions[1]
             vel_x = (self.x - prev_x) / self.segment_length
@@ -494,40 +492,59 @@ class WormGame:
         else:
             vel_x = vel_y = 0
         
-        # Base state
-        state = [norm_x, norm_y, dist_right, dist_left, dist_bottom, dist_top, vel_x, vel_y]
-        
-        # Add closest plant information
+        # Find closest plant
         closest_dist = float('inf')
         closest_angle = 0
-        plant_state = 0  # 0: no plant, 1: growing, 2: mature, 3: wilting
+        plant_state = 0
         
         for plant in self.plants:
             dx = plant.x - self.x
-            dy = (plant.y + plant.size) - self.y  # Target the base of the plant
+            dy = plant.y - self.y
             dist = math.sqrt(dx*dx + dy*dy)
             
             if dist < closest_dist:
                 closest_dist = dist
-                closest_angle = math.atan2(dy, dx) - self.angle
+                # Calculate angle to plant relative to worm's current angle
+                plant_angle = math.atan2(dy, dx)
+                closest_angle = (plant_angle - self.angle + math.pi) % (2*math.pi) - math.pi
+                
+                # Get plant state
                 if plant.state == 'growing':
                     plant_state = 1
                 elif plant.state == 'mature':
                     plant_state = 2
                 else:  # wilting
                     plant_state = 3
-                    
+        
         # Normalize values
         closest_dist = min(1.0, closest_dist / self.game_height)
         closest_angle = (closest_angle + math.pi) / (2 * math.pi)  # Normalize to [0,1]
+        plant_state = plant_state / 3.0  # Normalize to [0,1]
         
-        # Add plant and hunger info to state
-        state.extend([
-            closest_dist,
-            closest_angle,
-            plant_state / 3.0,  # Normalize state to [0,1]
-            self.hunger / self.max_hunger
-        ])
+        # Calculate angular velocity (difference between current and target angle)
+        angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
+        angular_vel = angle_diff / math.pi  # Normalize to [-1,1]
+        
+        # Normalize current angle
+        norm_angle = (self.angle % (2 * math.pi)) / (2 * math.pi)  # Normalize to [0,1]
+        
+        # Combine all state components
+        state = [
+            self.x / self.width,  # Normalized position
+            self.y / self.height,
+            vel_x,  # Already normalized by segment_length
+            vel_y,
+            norm_angle,  # Current angle [0,1]
+            angular_vel,  # Angular velocity [-1,1]
+            closest_dist,  # Distance to closest plant [0,1]
+            closest_angle,  # Angle to closest plant [0,1]
+            plant_state,  # State of closest plant [0,1]
+            wall_dists[0] / self.width,  # Normalized wall distances
+            wall_dists[1] / self.width,
+            wall_dists[2] / self.height,
+            wall_dists[3] / self.height,
+            self.hunger / self.max_hunger  # Normalized hunger [0,1]
+        ]
         
         return state
 
@@ -537,7 +554,8 @@ class WormGame:
         self.x = self.width / 2
         self.y = self.height / 2
         self.angle = 0
-        self.speed = 5
+        self.target_angle = 0
+        self.prev_action = 4  # Reset to no movement
         
         # Reset segments
         self.num_segments = 20
@@ -689,7 +707,7 @@ class WormAgent:
         print(f"Saved model state at episode {episode}")
 
 # ML Agent setup
-STATE_SIZE = 12  # position (2), velocity (2), distances to walls (4), closest plant (4)
+STATE_SIZE = 15  # position (2), velocity (2), distances to walls (4), closest plant (4), angle (1), angular velocity (1), hunger (1)
 ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
