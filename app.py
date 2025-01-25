@@ -304,13 +304,19 @@ class WormGame:
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
             plant_rect = plant.get_bounding_box()
             
-            # Calculate reward based on plant size and growth
+            # Get plant's nutritional value
+            nutrition = plant.get_nutritional_value()
+            
             if head_rect.colliderect(plant_rect):
-                old_hunger = self.hunger
-                self.hunger = min(self.max_hunger, self.hunger + self.hunger_gain_from_plant)
+                # Scale hunger gain and score based on nutritional value
+                hunger_gain = int(self.hunger_gain_from_plant * nutrition)
+                score_gain = int(10 * nutrition)  # Base score of 10 multiplied by nutrition
                 
-                # Grow when eating if not at max size
-                if self.num_segments < self.max_segments:
+                # Apply the gains
+                self.hunger = min(self.max_hunger, self.hunger + hunger_gain)
+                
+                # Grow when eating if not at max size and plant is nutritious enough
+                if self.num_segments < self.max_segments and nutrition > 0.5:  # Only grow from somewhat nutritious plants
                     self.num_segments += 1
                     # Add new segment at the end
                     last_pos = self.positions[-1]
@@ -323,8 +329,9 @@ class WormGame:
                     self.expression_time = time.time()
                 
                 # Show neutral expression for just eating
-                elif old_hunger < self.hunger:
-                    self.expression = 0.5
+                else:
+                    # Expression based on nutritional value
+                    self.expression = min(1.0, nutrition)  # Better nutrition = happier expression
                     self.expression_time = time.time()
                 
                 # Remove the plant after eating it
@@ -332,7 +339,7 @@ class WormGame:
                 return True
                 
         return False
-        
+
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
         old_hunger = self.hunger

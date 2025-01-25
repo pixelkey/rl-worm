@@ -990,6 +990,40 @@ class Plant:
                       pos[1] - math.sin(math.radians(angle)) * size)
             pygame.draw.line(surface, highlight_color, pos, end_pos, max(1, int(size/6)))
 
+    def get_nutritional_value(self):
+        """Calculate the nutritional value of the plant based on its current state"""
+        # Base value depends on plant size and type
+        base_value = self.base_size * self.plant_type.mature_height_multiplier
+        
+        # Multiply by growth stage to account for plant maturity
+        maturity_value = base_value * self.growth_stage
+        
+        # Apply state-based modifiers
+        state_multiplier = {
+            'seed': 0.3,      # Seeds provide little nutrition
+            'sprouting': 0.6,  # Young plants are somewhat nutritious
+            'mature': 1.0,     # Mature plants provide full value
+            'wilting': 0.5,    # Wilting plants provide less value
+            'dying': 0.2      # Dying plants provide very little value
+        }.get(self.state, 1.0)
+        
+        # Plant type specific multipliers (some plants are more nutritious)
+        type_multiplier = {
+            'fern': 0.8,           # Ferns are less nutritious
+            'bush': 1.0,           # Standard nutrition
+            'purple_flower': 1.2,   # Flowering plants are more nutritious
+            'red_flower': 1.2,
+            'yellow_flower': 1.2,
+            'vine': 0.9,           # Vines are slightly less nutritious
+            'succulent': 1.3,      # Succulents are very nutritious
+            'orchid': 1.1          # Orchids are somewhat more nutritious
+        }.get(self.plant_type.name, 1.0)
+        
+        final_value = maturity_value * state_multiplier * type_multiplier
+        
+        # Ensure there's always some minimal value
+        return max(0.2, final_value)
+
     def draw(self, surface):
         """Draw the plant"""
         if self.state == 'seed':
