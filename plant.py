@@ -30,6 +30,8 @@ class Plant:
         self.leaf_patterns = []    # Will store [size, position] for each potential leaf
         self.generate_patterns(self.max_branch_depth)
         
+        self.branch_growth = [0.0] * (self.max_branch_depth + 1)  # List of growth stages for each branch level
+
     def generate_patterns(self, max_depth, parent_angle=90, depth=0):
         """Pre-generate all random patterns for this plant"""
         if depth >= max_depth:
@@ -83,31 +85,53 @@ class Plant:
             self.stem_height = int(self.base_size * 0.2)
             self.leaf_size = 0
             self.color = (30, 110, 20)  # Dark green seed
+            self.branch_growth = [0.0] * (self.max_branch_depth + 1)
         elif life_ratio > 0.7:  # Next 20% - sprouting
             self.state = 'sprouting'
-            self.growth_stage = (0.9 - life_ratio) * 5  # 0.0 to 1.0 during sprouting
-            self.stem_height = int(self.base_size * (0.2 + self.growth_stage))
-            self.leaf_size = int(self.base_size * self.growth_stage * 0.5)
-            green = int(110 + 70 * self.growth_stage)
+            stage_progress = (0.9 - life_ratio) / 0.2  # 0.0 to 1.0 during sprouting
+            self.growth_stage = stage_progress
+            self.stem_height = int(self.base_size * (0.2 + stage_progress * 1.8))
+            self.leaf_size = int(self.base_size * stage_progress * 0.5)
+            green = int(110 + 70 * stage_progress)
             self.color = (20, green, 10)
+            self.branch_growth = [stage_progress] + [0.0] * self.max_branch_depth
         elif life_ratio > 0.4:  # Next 30% - growing/mature
             self.state = 'mature'
-            self.growth_stage = 1.0
+            stage_progress = (0.7 - life_ratio) / 0.3  # 0.0 to 1.0 during mature stage
+            self.growth_stage = stage_progress
             self.stem_height = int(self.base_size * 2)
             self.leaf_size = self.base_size
             self.color = (20, 180, 10)  # Bright healthy green
+            
+            # Calculate growth progress for each branch level
+            growth_per_level = 0.25  # Each level takes 25% of the growth time to appear
+            self.branch_growth = []  # List of growth stages for each branch level
+            
+            # Main stem is always fully grown in mature stage
+            self.branch_growth.append(1.0)
+            
+            # Calculate growth for each branch level
+            for depth in range(1, self.max_branch_depth + 1):
+                level_start = (depth - 1) * growth_per_level
+                level_progress = max(0.0, min(1.0, (stage_progress - level_start) / growth_per_level))
+                self.branch_growth.append(level_progress)
+                
         elif life_ratio > 0.1:  # Next 30% - starting to wilt
             self.state = 'wilting'
-            self.growth_stage = life_ratio / 0.4  # Gradually wilt
-            green = int(180 * self.growth_stage)
-            brown = int(120 * (1 - self.growth_stage))
+            stage_progress = (life_ratio - 0.1) / 0.3  # 1.0 to 0.0 during wilting
+            self.growth_stage = stage_progress
+            self.branch_growth = [1.0] * (self.max_branch_depth + 1)  # All branches fully grown
+            green = int(180 * stage_progress)
+            brown = int(120 * (1 - stage_progress))
             self.color = (brown, green, 0)
         else:  # Final 10% - nearly dead
             self.state = 'dying'
-            self.growth_stage = life_ratio / 0.1
-            self.stem_height = int(self.base_size * (1 + self.growth_stage))
-            self.leaf_size = int(self.base_size * self.growth_stage)
-            self.color = (100, int(60 * self.growth_stage), 0)  # Brown
+            stage_progress = life_ratio / 0.1  # 1.0 to 0.0 during dying
+            self.growth_stage = stage_progress
+            self.branch_growth = [1.0] * (self.max_branch_depth + 1)  # All branches fully grown
+            self.stem_height = int(self.base_size * (1 + stage_progress))
+            self.leaf_size = int(self.base_size * stage_progress)
+            self.color = (100, int(60 * stage_progress), 0)  # Brown
             
         return self.lifetime > 0
 
@@ -128,10 +152,16 @@ class Plant:
         if current_pattern is None:
             return
             
-        # Calculate end point using stored variation
+        # Get growth progress for this branch level
+        growth_progress = self.branch_growth[depth]
+        if growth_progress <= 0:
+            return
+            
+        # Calculate end point using stored variation and growth progress
         variation = current_pattern['variation']
-        end_x = start[0] + math.cos(math.radians(angle)) * length * variation
-        end_y = start[1] - math.sin(math.radians(angle)) * length * variation
+        current_length = length * growth_progress
+        end_x = start[0] + math.cos(math.radians(angle)) * current_length * variation
+        end_y = start[1] - math.sin(math.radians(angle)) * current_length * variation
         end = (end_x, end_y)
         
         # Draw the branch
@@ -153,8 +183,8 @@ class Plant:
         else:  # Sub-branches
             # Use stored control point offset
             ctrl_offset = current_pattern['ctrl_offset']
-            mid_x = (start[0] + end[0])/2 + ctrl_offset[0]
-            mid_y = (start[1] + end[1])/2 + ctrl_offset[1]
+            mid_x = (start[0] + end[0])/2 + ctrl_offset[0] * growth_progress
+            mid_y = (start[1] + end[1])/2 + ctrl_offset[1] * growth_progress
             ctrl_point = (mid_x, mid_y)
             
             points = []
@@ -166,12 +196,13 @@ class Plant:
                 points.append((x, y))
             
             if len(points) >= 2:
-                pygame.draw.lines(surface, self.color, False, points, width)
+                pygame.draw.lines(surface, self.color, False, points, max(1, int(width * growth_progress)))
         
-        # Draw leaves using stored pattern
-        if current_pattern['has_leaf'] and self.state not in ['seed', 'sprouting']:
-            leaf_size = self.leaf_size * (0.7 ** depth) * current_pattern['leaf_size_var']
-            self.draw_fractal_leaf(surface, end, angle, leaf_size)
+        # Draw leaves using stored pattern, only if branch is grown enough
+        if current_pattern['has_leaf'] and self.state not in ['seed', 'sprouting'] and growth_progress > 0.5:
+            leaf_size = self.leaf_size * (0.7 ** depth) * current_pattern['leaf_size_var'] * min(1.0, growth_progress * 2 - 1)
+            if leaf_size > 0:
+                self.draw_fractal_leaf(surface, end, angle, leaf_size)
         
         # Calculate new length and width for sub-branches
         new_length = length * 0.7 * self.branch_variation
