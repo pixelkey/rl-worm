@@ -886,7 +886,7 @@ class WormGame:
         # Reset colors
         self.body_colors = []
         for i in range(self.num_segments):
-            green_val = int(150 - (100 * i / (self.max_segments - 1)))
+            green_val = int(150 - (100 * i / self.max_segments))
             self.body_colors.append((70, green_val + 30, 20))
         
         # Start with low hunger (30% of max) to encourage immediate food seeking
