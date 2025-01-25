@@ -67,8 +67,8 @@ class WormGame:
         self.level = 1
         self.episode_reward = 0.0
         self.steps_in_level = 0
-        self.min_steps = 2000  # Start with 2000 steps like training
-        self.max_steps = 5000  # Maximum steps like training
+        self.min_steps = 5000 if not headless else 2000  # Longer for regular play, shorter for training
+        self.max_steps = 10000 if not headless else 5000  # Maximum steps based on mode
         self.steps_increment = 100  # How many steps to add when leveling up
         self.steps_for_level = self.min_steps  # Current level's step requirement
         
@@ -247,7 +247,7 @@ class WormGame:
         self.REWARD_SMOOTH_MOVEMENT = 0.1  # Small reward for smooth movement
         self.REWARD_EXPLORATION = 0.01  # Tiny reward for exploring
         
-        self.PENALTY_WALL = -10.0  
+        self.PENALTY_WALL = -50.0  # Increased from -10.0
         self.PENALTY_WALL_STAY = -5.0  
         self.PENALTY_SHARP_TURN = -1.0  
         self.PENALTY_STARVATION_BASE = -0.2  
@@ -939,70 +939,94 @@ class WormGame:
             self.height - self.y  # Distance to bottom wall
         ]
         
-        # Calculate velocity
-        if len(self.positions) > 1:
+        # Calculate velocity and acceleration
+        if len(self.positions) > 2:
             prev_x, prev_y = self.positions[1]
+            prev2_x, prev2_y = self.positions[2]
+            
             vel_x = (self.x - prev_x) / self.segment_length
             vel_y = (self.y - prev_y) / self.segment_length
+            
+            # Calculate acceleration
+            prev_vel_x = (prev_x - prev2_x) / self.segment_length
+            prev_vel_y = (prev_y - prev2_y) / self.segment_length
+            acc_x = (vel_x - prev_vel_x) / self.segment_length
+            acc_y = (vel_y - prev_vel_y) / self.segment_length
         else:
-            vel_x = vel_y = 0
+            vel_x = vel_y = acc_x = acc_y = 0
         
-        # Find closest plant
-        closest_dist = float('inf')
-        closest_angle = 0
-        plant_state = 0
+        # Information about closest plants
+        num_plants_to_track = 3  # Track multiple closest plants
+        plant_info = []
+        plants_with_distances = []
         
         for plant in self.plants:
             dx = plant.x - self.x
             dy = plant.y - self.y
             dist = math.sqrt(dx*dx + dy*dy)
+            angle = math.atan2(dy, dx)
             
-            if dist < closest_dist:
-                closest_dist = dist
-                # Calculate angle to plant relative to worm's current angle
-                plant_angle = math.atan2(dy, dx)
-                closest_angle = (plant_angle - self.angle + math.pi) % (2*math.pi) - math.pi
-                
-                # Get plant state
-                if plant.state == 'growing':
-                    plant_state = 1
-                elif plant.state == 'mature':
-                    plant_state = 2
-                else:  # wilting
-                    plant_state = 3
+            # Calculate time to reach plant based on current velocity
+            time_to_reach = float('inf')
+            if abs(vel_x) > 0.1 or abs(vel_y) > 0.1:
+                # Project current trajectory
+                proj_time_x = dx/vel_x if abs(vel_x) > 0.1 else float('inf')
+                proj_time_y = dy/vel_y if abs(vel_y) > 0.1 else float('inf')
+                time_to_reach = min(abs(proj_time_x), abs(proj_time_y))
+            
+            # Calculate plant's future state
+            future_lifetime = plant.lifetime
+            if time_to_reach != float('inf'):
+                future_lifetime = max(0, plant.lifetime - int(time_to_reach))
+            future_value = 0
+            if future_lifetime > 0:
+                future_life_ratio = future_lifetime / plant.max_lifetime
+                if future_life_ratio > 0.7:  # Sprouting or earlier
+                    future_value = 0.3
+                elif future_life_ratio > 0.4:  # Mature
+                    future_value = 1.0
+                elif future_life_ratio > 0.2:  # Aging
+                    future_value = 0.7
+                else:  # Dying
+                    future_value = 0.2
+            
+            plants_with_distances.append((dist, angle, plant.lifetime/plant.max_lifetime, 
+                                       future_value, time_to_reach))
         
-        # Normalize values
-        closest_dist = min(1.0, closest_dist / self.game_height)
-        closest_angle = (closest_angle + math.pi) / (2 * math.pi)  # Normalize to [0,1]
-        plant_state = plant_state / 3.0  # Normalize to [0,1]
+        # Sort by distance and take closest N plants
+        plants_with_distances.sort(key=lambda x: x[0])
+        for i in range(min(num_plants_to_track, len(plants_with_distances))):
+            dist, angle, current_life, future_value, time = plants_with_distances[i]
+            # Normalize values
+            plant_info.extend([
+                dist / math.sqrt(self.width**2 + self.height**2),  # Normalized distance
+                angle / (2 * math.pi),  # Normalized angle
+                current_life,  # Current life ratio
+                future_value,  # Predicted future value
+                time / 100.0  # Normalized time to reach (capped at 100 steps)
+            ])
         
-        # Calculate angular velocity (difference between current and target angle)
-        angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
-        angular_vel = angle_diff / math.pi  # Normalize to [-1,1]
+        # Pad with zeros if we have fewer than N plants
+        while len(plant_info) < num_plants_to_track * 5:
+            plant_info.extend([0, 0, 0, 0, 0])
         
-        # Normalize current angle
-        norm_angle = (self.angle % (2 * math.pi)) / (2 * math.pi)  # Normalize to [0,1]
+        # Normalize wall distances
+        wall_dists = [d / max(self.width, self.height) for d in wall_dists]
         
-        # Combine all state components
-        state = [
-            self.x / self.width,  # Normalized position
-            self.y / self.height,
-            vel_x,  # Already normalized by segment_length
-            vel_y,
-            norm_angle,  # Current angle [0,1]
-            angular_vel,  # Angular velocity [-1,1]
-            closest_dist,  # Distance to closest plant [0,1]
-            closest_angle,  # Angle to closest plant [0,1]
-            plant_state,  # State of closest plant [0,1]
-            wall_dists[0] / self.width,  # Normalized wall distances
-            wall_dists[1] / self.width,
-            wall_dists[2] / self.height,
-            wall_dists[3] / self.height,
-            self.hunger / self.max_hunger  # Normalized hunger [0,1]
-        ]
+        # Combine all state information
+        state = (
+            [self.x / self.width, self.y / self.height] +  # 2 values - normalized position
+            [vel_x/10.0, vel_y/10.0] +  # 2 values - normalized velocity
+            [acc_x/5.0, acc_y/5.0] +  # 2 values - normalized acceleration
+            [(self.angle % (2 * math.pi)) / (2 * math.pi)] +  # 1 value - normalized current angle
+            [((self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi) / math.pi] +  # 1 value - normalized angular velocity
+            [self.hunger / self.max_hunger] +  # 1 value - normalized energy level
+            wall_dists +  # 4 values - normalized wall distances
+            plant_info  # 15 values (3 plants * 5 values each)
+        )
         
-        return state
-
+        return np.array(state, dtype=np.float32)
+    
     def reset(self):
         """Reset the game state"""
         # Reset worm position to center
@@ -1188,7 +1212,7 @@ class WormAgent:
         print(f"Saved model state at episode {episode}")
 
 # ML Agent setup
-STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
+STATE_SIZE = 28  # pos(2) + vel(2) + acc(2) + angles(2) + energy(1) + walls(4) + plant_info(15)
 ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
@@ -1203,7 +1227,7 @@ analytics = WormAnalytics()
 # Episode tracking
 episode = 0
 steps_in_episode = 0
-MAX_STEPS = 2000
+MAX_STEPS = 5000 if not args.demo else 2000  # Longer episodes for regular play, shorter for training
 positions_history = []
 
 # Movement tracking

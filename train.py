@@ -27,9 +27,22 @@ TRAINING_EPISODES = 1000
 MIN_STEPS = 2000  # Start with 2000 steps
 MAX_STEPS = 5000  # Maximum steps per episode
 STEPS_INCREMENT = 100  # How many steps to add when performance improves
-PERFORMANCE_THRESHOLD = -100  # Reward threshold to increase steps
+PERFORMANCE_THRESHOLD = 200  # Only increase steps for positive average reward
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
+
+# Add reward window for smoother step increases
+REWARD_WINDOW_SIZE = 5  # Average over last 5 episodes
+reward_history = []
+
+def should_increase_steps(reward, steps_per_episode):
+    """Determine if we should increase steps based on performance"""
+    reward_history.append(reward)
+    if len(reward_history) > REWARD_WINDOW_SIZE:
+        reward_history.pop(0)
+        avg_reward = sum(reward_history) / len(reward_history)
+        return avg_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS
+    return False
 
 class ProgressBar:
     def __init__(self, total, width=50):
@@ -61,12 +74,12 @@ class WormAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.memory = deque(maxlen=100000)
-        self.batch_size = 512  # Reduced from 4096 for more stable learning
+        self.batch_size = 256  # Smaller batch size for faster training
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.01
-        self.epsilon_decay = 0.9995  # Slower decay for better exploration
-        self.learning_rate = 0.0005  # Reduced for more stable learning
+        self.epsilon_min = 0.1  # Higher minimum exploration
+        self.epsilon_decay = 0.997  # Slower decay
+        self.learning_rate = 0.001  # Slightly higher learning rate
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         print(f"Using device: {self.device}")
@@ -77,6 +90,9 @@ class WormAgent:
         self.model = self._build_model().to(self.device)
         self.target_model = self._build_model().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='max', 
+                                                            factor=0.5, patience=5,
+                                                            verbose=True)
         
         # Try to load saved model
         self.load()
@@ -210,13 +226,14 @@ def fast_training():
     start_time = time.time()
     
     # Initialize agent and analytics
-    STATE_SIZE = 14
+    STATE_SIZE = 28  # Updated to match app.py: pos(2) + vel(2) + acc(2) + angles(2) + energy(1) + walls(4) + plant_info(15)
     ACTION_SIZE = 9
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
     steps_per_episode = MIN_STEPS
     last_time = time.time()
+    episode_rewards = []  # Track episode rewards for logging
     
     try:
         for episode in range(TRAINING_EPISODES):
@@ -246,73 +263,59 @@ def fast_training():
                 if info['wall_collision']:
                     wall_collisions += 1
                 
-                # Track visited positions
+                # Track visited positions for exploration metric
                 head_pos = game.positions[0]
                 grid_size = game.game_width / 20
-                grid_pos = (int(head_pos[0]/grid_size), int(head_pos[1]/grid_size))
+                grid_pos = (int(head_pos[0] / grid_size), int(head_pos[1] / grid_size))
                 episode_positions.add(grid_pos)
                 
                 # Store experience and train
                 agent.remember(state, action, reward, next_state, done)
+                loss = agent.train()
                 
-                train_start = time.time()
-                if len(agent.memory) >= agent.batch_size and step % 4 == 0:
-                    loss = agent.train()
-                training_time += time.time() - train_start
-                
-                # Update state and metrics
-                state = next_state
                 total_reward += reward
-                steps_survived += 1
+                state = next_state
                 
-                # Update target network periodically
-                if step % 1000 == 0:
-                    agent.update_target_model()
-                
-                # Break if done
                 if done:
                     break
+                
+                # Update timing metrics
+                step_end = time.time()
+                if loss is not None:
+                    training_time += step_end - step_start
+                game_time += step_end - step_start
             
-            # Calculate metrics
-            exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
+            # Calculate exploration ratio
+            total_grids = (game.game_width / grid_size) * (game.game_height / grid_size)
+            exploration_ratio = len(episode_positions) / total_grids
             
-            # Update analytics
-            metrics = {
-                'avg_reward': total_reward,
-                'wall_collisions': wall_collisions,
-                'exploration_ratio': exploration_ratio,
-                'movement_smoothness': steps_survived / steps_per_episode,
-                'epsilon': agent.epsilon
-            }
+            # Track episode statistics
+            episode_rewards.append(total_reward)
+            avg_reward = sum(episode_rewards[-10:]) / min(len(episode_rewards), 10)
             
-            analytics.update_metrics(episode, metrics)
+            # Only increase steps if performance is good
+            if should_increase_steps(total_reward, steps_per_episode):
+                steps_per_episode = min(steps_per_episode + STEPS_INCREMENT, MAX_STEPS)
+                print(f"Steps increased to {steps_per_episode}")
             
-            # Save model periodically
-            if episode % SAVE_INTERVAL == 0:
-                agent.save(episode)
+            # Print detailed episode stats
+            print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
+            print(f"Steps: {step+1}/{steps_per_episode}")
+            print(f"Reward: {total_reward:.2f}")
+            print(f"Avg Reward (10 ep): {avg_reward:.2f}")
+            print(f"Plants: {plants_eaten}")
+            print(f"Wall Hits: {wall_collisions}")
+            print(f"Explore: {exploration_ratio:.2f}")
+            print(f"Epsilon: {agent.epsilon:.3f}")
+            print(f"Episode Time: {game_time:.2f}s")
+            print(f"Training Time: {training_time:.2f}s")
             
             # Update progress bar
             progress.update(episode + 1)
             
-            # Print metrics periodically
-            if episode % PRINT_INTERVAL == 0:
-                current_time = time.time()
-                episode_time = current_time - last_time
-                print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
-                print(f"Steps: {steps_survived}/{steps_per_episode}")
-                print(f"Reward: {total_reward:.2f}")
-                print(f"Plants: {plants_eaten}")
-                print(f"Explore: {exploration_ratio:.2f}")
-                print(f"Epsilon: {agent.epsilon:.3f}")
-                print(f"Episode Time: {episode_time:.2f}s")
-                print(f"Game Time: {game_time:.2f}s")
-                print(f"Training Time: {training_time:.2f}s")
-                last_time = current_time
-            
-            # Increase steps if performance improves
-            if total_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS:
-                steps_per_episode += STEPS_INCREMENT
-                print(f"Steps increased to {steps_per_episode}")
+            # Save model periodically
+            if (episode + 1) % SAVE_INTERVAL == 0:
+                agent.save(episode)
                 
     except KeyboardInterrupt:
         print("\nTraining interrupted! Saving progress...")

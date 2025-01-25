@@ -9,30 +9,33 @@ import json
 import math
 
 class DQN(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
-        # Larger network for better GPU utilization
-        self.network = nn.Sequential(
-            nn.Linear(input_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, output_size)
-        )
         
-        # Initialize weights for better training
-        self.apply(self._init_weights)
+        # Increase network capacity
+        self.fc1 = nn.Linear(state_size, 256)
+        self.bn1 = nn.BatchNorm1d(256)
+        self.fc2 = nn.Linear(256, 256)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.fc3 = nn.Linear(256, 128)
+        self.bn3 = nn.BatchNorm1d(128)
+        self.fc4 = nn.Linear(128, action_size)
         
-    def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
-            if module.bias is not None:
-                nn.init.constant_(module.bias, 0)
-
+        # Initialize weights with Xavier/Glorot initialization
+        nn.init.xavier_uniform_(self.fc1.weight)
+        nn.init.xavier_uniform_(self.fc2.weight)
+        nn.init.xavier_uniform_(self.fc3.weight)
+        nn.init.xavier_uniform_(self.fc4.weight)
+        
+        self.dropout = nn.Dropout(0.1)  # Light dropout
+        
     def forward(self, x):
-        return self.network(x)
+        x = F.relu(self.bn1(self.fc1(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn2(self.fc2(x)))
+        x = self.dropout(x)
+        x = F.relu(self.bn3(self.fc3(x)))
+        return self.fc4(x)
 
 class ReplayBuffer:
     def __init__(self, capacity):
