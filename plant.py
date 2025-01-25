@@ -5,24 +5,27 @@ import random
 class PlantType:
     def __init__(self, name, characteristics):
         self.name = name
-        self.base_color = characteristics.get('base_color', (20, 120, 20))
-        self.max_branch_depth = characteristics.get('max_branch_depth', 2)
-        self.branch_angle_range = characteristics.get('branch_angle_range', (20, 40))
+        self.max_branch_depth = characteristics.get('max_branch_depth', 3)
+        self.base_color = characteristics.get('base_color', (20, 150, 20))
+        self.leaf_color = characteristics.get('leaf_color', None)  # If None, use base_color
+        self.flower_color = characteristics.get('flower_color', None)  # For flowering plants
+        self.stem_color = characteristics.get('stem_color', None)  # If None, use base_color
         self.leaf_type = characteristics.get('leaf_type', 'normal')
-        self.leaf_size_multiplier = characteristics.get('leaf_size_multiplier', 1.0)
         self.stem_type = characteristics.get('stem_type', 'straight')
         self.growth_speed = characteristics.get('growth_speed', 1.0)
         self.branch_density = characteristics.get('branch_density', (0.6, 1.0))
         self.mature_height_multiplier = characteristics.get('mature_height_multiplier', 1.0)
+        self.has_flowers = characteristics.get('has_flowers', False)
+        self.flower_probability = characteristics.get('flower_probability', 0.3)
 
 # Define different plant types
 PLANT_TYPES = {
     'fern': PlantType('fern', {
-        'base_color': (40, 150, 40),
+        'base_color': (20, 150, 20),
+        'leaf_color': (30, 160, 30),
+        'stem_color': (60, 120, 30),
         'max_branch_depth': 4,
-        'branch_angle_range': (30, 60),
         'leaf_type': 'feather',
-        'leaf_size_multiplier': 0.7,
         'stem_type': 'curved',
         'growth_speed': 1.2,
         'branch_density': (0.8, 0.9),
@@ -30,10 +33,10 @@ PLANT_TYPES = {
     }),
     'bush': PlantType('bush', {
         'base_color': (20, 140, 20),
+        'leaf_color': (40, 150, 40),
+        'stem_color': (80, 100, 40),
         'max_branch_depth': 3,
-        'branch_angle_range': (20, 45),
         'leaf_type': 'round',
-        'leaf_size_multiplier': 1.2,
         'stem_type': 'straight',
         'growth_speed': 0.9,
         'branch_density': (0.7, 1.0),
@@ -41,21 +44,24 @@ PLANT_TYPES = {
     }),
     'flower': PlantType('flower', {
         'base_color': (150, 50, 150),  # Purple base for flower
-        'max_branch_depth': 2,
-        'branch_angle_range': (15, 30),
+        'leaf_color': (40, 160, 40),
+        'stem_color': (60, 140, 60),
+        'flower_color': (200, 100, 200),  # Bright purple flowers
+        'max_branch_depth': 3,
         'leaf_type': 'pointed',
-        'leaf_size_multiplier': 0.8,
         'stem_type': 'straight',
         'growth_speed': 1.1,
         'branch_density': (0.5, 0.7),
-        'mature_height_multiplier': 1.2
+        'mature_height_multiplier': 1.2,
+        'has_flowers': True,
+        'flower_probability': 0.4
     }),
     'vine': PlantType('vine', {
         'base_color': (30, 160, 30),
-        'max_branch_depth': 3,
-        'branch_angle_range': (40, 80),
+        'leaf_color': (50, 180, 50),
+        'stem_color': (40, 130, 40),
+        'max_branch_depth': 4,
         'leaf_type': 'heart',
-        'leaf_size_multiplier': 0.9,
         'stem_type': 'wavy',
         'growth_speed': 1.3,
         'branch_density': (0.4, 0.6),
@@ -63,10 +69,10 @@ PLANT_TYPES = {
     }),
     'succulent': PlantType('succulent', {
         'base_color': (100, 160, 100),
+        'leaf_color': (120, 180, 120),
+        'stem_color': (90, 140, 90),
         'max_branch_depth': 2,
-        'branch_angle_range': (10, 25),
         'leaf_type': 'thick',
-        'leaf_size_multiplier': 1.5,
         'stem_type': 'thick',
         'growth_speed': 0.7,
         'branch_density': (0.9, 1.0),
@@ -90,7 +96,10 @@ class Plant:
         self.growth_stage = 0.0
         self.stem_height = 0
         self.leaf_size = 0
-        self.color = self.plant_type.base_color
+        self.base_color = self.plant_type.base_color
+        self.leaf_color = self.plant_type.leaf_color if self.plant_type.leaf_color else self.base_color
+        self.stem_color = self.plant_type.stem_color if self.plant_type.stem_color else self.base_color
+        self.color = self.base_color
         
         # Generate unique characteristics for this plant
         self.max_branch_depth = self.plant_type.max_branch_depth
@@ -165,7 +174,8 @@ class Plant:
                 'length_var': length_var,
                 'depth': depth,
                 'has_leaf': random.random() < self.leaf_density,
-                'leaf_size_var': random.uniform(0.8, 1.2) if random.random() < self.leaf_density else 1.0
+                'leaf_size_var': random.uniform(0.8, 1.2) if random.random() < self.leaf_density else 1.0,
+                'has_flower': random.random() < self.plant_type.flower_probability if self.plant_type.has_flowers else False
             })
             
             # Recursively generate patterns for sub-branches
@@ -278,7 +288,7 @@ class Plant:
                 points.append((x, y))
             
             if len(points) >= 2:
-                pygame.draw.lines(surface, self.color, False, points, width)
+                pygame.draw.lines(surface, self.stem_color, False, points, width)
         else:  # Sub-branches
             # Use stored control point offset
             ctrl_offset = current_pattern['ctrl_offset']
@@ -295,13 +305,19 @@ class Plant:
                 points.append((x, y))
             
             if len(points) >= 2:
-                pygame.draw.lines(surface, self.color, False, points, max(1, int(width * growth_progress)))
+                pygame.draw.lines(surface, self.stem_color, False, points, max(1, int(width * growth_progress)))
         
         # Draw leaves using stored pattern, only if branch is grown enough
         if current_pattern['has_leaf'] and self.state not in ['seed', 'sprouting'] and growth_progress > 0.5:
             leaf_size = self.leaf_size * (0.7 ** depth) * current_pattern['leaf_size_var'] * min(1.0, growth_progress * 2 - 1)
             if leaf_size > 0:
                 self.draw_fractal_leaf(surface, end, angle, leaf_size)
+        
+        # Draw flowers using stored pattern, only if branch is grown enough
+        if current_pattern['has_flower'] and self.state not in ['seed', 'sprouting'] and growth_progress > 0.5:
+            flower_size = self.leaf_size * (0.7 ** depth) * min(1.0, growth_progress * 2 - 1)
+            if flower_size > 0:
+                self.draw_flower(surface, end, angle, flower_size)
         
         # Calculate new length and width for sub-branches
         new_length = length * 0.7 * self.branch_variation
@@ -321,6 +337,39 @@ class Plant:
                 self.draw_fractal_branch(surface, end, new_angle, 
                                        new_length * pattern['length_var'],
                                        new_width, depth + 1, max_depth)
+
+    def draw_flower(self, surface, pos, angle, size):
+        """Draw a flower at the end of a branch"""
+        if size < 2 or not self.plant_type.has_flowers:
+            return
+            
+        # Center of the flower
+        center_size = size * 0.3
+        pygame.draw.circle(surface, (255, 220, 0), (int(pos[0]), int(pos[1])), int(center_size))
+        
+        # Draw petals
+        num_petals = 5
+        petal_size = size * 0.8
+        flower_color = self.plant_type.flower_color
+        
+        for i in range(num_petals):
+            petal_angle = angle + (i * (360 / num_petals))
+            # Petal points
+            tip_x = pos[0] + math.cos(math.radians(petal_angle)) * petal_size
+            tip_y = pos[1] - math.sin(math.radians(petal_angle)) * petal_size
+            
+            # Draw petal
+            left_x = pos[0] + math.cos(math.radians(petal_angle - 30)) * (petal_size * 0.4)
+            left_y = pos[1] - math.sin(math.radians(petal_angle - 30)) * (petal_size * 0.4)
+            right_x = pos[0] + math.cos(math.radians(petal_angle + 30)) * (petal_size * 0.4)
+            right_y = pos[1] - math.sin(math.radians(petal_angle + 30)) * (petal_size * 0.4)
+            
+            pygame.draw.polygon(surface, flower_color, [
+                (pos[0], pos[1]),
+                (left_x, left_y),
+                (tip_x, tip_y),
+                (right_x, right_y)
+            ])
 
     def draw_fractal_leaf(self, surface, pos, angle, size):
         """Draw a fractal-like leaf with veins"""
@@ -375,13 +424,13 @@ class Plant:
             points.append((x, y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.color, points)
+            pygame.draw.polygon(surface, self.leaf_color, points)
             
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.color[0] + 20),
-                         min(255, self.color[1] + 20),
-                         min(255, self.color[2] + 20))
+            vein_color = (min(255, self.leaf_color[0] + 20),
+                         min(255, self.leaf_color[1] + 20),
+                         min(255, self.leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/8)))
             
     def draw_feather_leaf(self, surface, pos, angle, size):
@@ -389,7 +438,7 @@ class Plant:
         # Main stem
         end_pos = (pos[0] + math.cos(math.radians(angle)) * size,
                   pos[1] - math.sin(math.radians(angle)) * size)
-        pygame.draw.line(surface, self.color, pos, end_pos, max(1, int(size/10)))
+        pygame.draw.line(surface, self.leaf_color, pos, end_pos, max(1, int(size/10)))
         
         # Draw small leaflets along the stem
         num_pairs = max(3, int(size / 4))
@@ -410,13 +459,13 @@ class Plant:
                  pos[1] - math.sin(math.radians(angle)) * radius)
         
         # Draw filled circle
-        pygame.draw.circle(surface, self.color, (int(center[0]), int(center[1])), int(radius))
+        pygame.draw.circle(surface, self.leaf_color, (int(center[0]), int(center[1])), int(radius))
         
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.color[0] + 20),
-                         min(255, self.color[1] + 20),
-                         min(255, self.color[2] + 20))
+            vein_color = (min(255, self.leaf_color[0] + 20),
+                         min(255, self.leaf_color[1] + 20),
+                         min(255, self.leaf_color[2] + 20))
             for a in range(0, 360, 45):
                 end_pos = (center[0] + math.cos(math.radians(a)) * radius * 0.8,
                           center[1] - math.sin(math.radians(a)) * radius * 0.8)
@@ -433,13 +482,13 @@ class Plant:
         right = (pos[0] + math.cos(math.radians(angle + 90)) * width,
                  pos[1] - math.sin(math.radians(angle + 90)) * width)
                  
-        pygame.draw.polygon(surface, self.color, [left, tip, right])
+        pygame.draw.polygon(surface, self.leaf_color, [left, tip, right])
         
         # Draw center vein
         if self.state != 'dying':
-            vein_color = (min(255, self.color[0] + 20),
-                         min(255, self.color[1] + 20),
-                         min(255, self.color[2] + 20))
+            vein_color = (min(255, self.leaf_color[0] + 20),
+                         min(255, self.leaf_color[1] + 20),
+                         min(255, self.leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/10)))
             
     def draw_heart_leaf(self, surface, pos, angle, size):
@@ -469,13 +518,13 @@ class Plant:
             points.append((x, y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.color, points)
+            pygame.draw.polygon(surface, self.leaf_color, points)
             
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.color[0] + 20),
-                         min(255, self.color[1] + 20),
-                         min(255, self.color[2] + 20))
+            vein_color = (min(255, self.leaf_color[0] + 20),
+                         min(255, self.leaf_color[1] + 20),
+                         min(255, self.leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/10)))
             
     def draw_thick_leaf(self, surface, pos, angle, size):
@@ -512,13 +561,13 @@ class Plant:
             points.append((right_x, right_y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.color, points)
+            pygame.draw.polygon(surface, self.leaf_color, points)
             
         # Draw center line for thickness effect
         if self.state != 'dying':
-            highlight_color = (min(255, self.color[0] + 40),
-                             min(255, self.color[1] + 40),
-                             min(255, self.color[2] + 40))
+            highlight_color = (min(255, self.leaf_color[0] + 40),
+                             min(255, self.leaf_color[1] + 40),
+                             min(255, self.leaf_color[2] + 40))
             end_pos = (pos[0] + math.cos(math.radians(angle)) * size,
                       pos[1] - math.sin(math.radians(angle)) * size)
             pygame.draw.line(surface, highlight_color, pos, end_pos, max(1, int(size/6)))
@@ -528,7 +577,7 @@ class Plant:
         if self.state == 'seed':
             # Draw seed
             radius = max(2, int(self.base_size * 0.3))
-            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), radius)
+            pygame.draw.circle(surface, self.base_color, (int(self.x), int(self.y)), radius)
             return
             
         # Draw main stem and branches
