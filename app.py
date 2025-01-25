@@ -138,9 +138,9 @@ class WormGame:
         # Worm properties - scale with game area
         self.segment_length = int(self.game_height/20)  # Spacing between segments
         self.segment_width = int(self.game_height/25)   # Size of body segments
-        self.num_segments = 10  # Start with 10 segments instead of 20
+        self.num_segments = 2  # Starting number of segments
         self.max_segments = 30
-        self.min_segments = 5
+        self.min_segments = 2
         self.head_size = int(self.game_height/20)      # Size of head
         self.segment_spacing = self.head_size * 1.2  # Fixed spacing between segments
         
@@ -880,8 +880,7 @@ class WormGame:
         self.target_angle = 0
         self.prev_action = 4  # Reset to no movement
         
-        # Reset segments to starting length
-        self.num_segments = 10  # Reset to 10 segments
+        # Use initial number of segments defined in __init__
         self.positions = [(self.x, self.y) for _ in range(self.num_segments)]
         
         # Reset colors
