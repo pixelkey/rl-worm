@@ -325,9 +325,8 @@ class WormGame:
             nutrition = plant.get_nutritional_value()
             
             if head_rect.colliderect(plant_rect):
-                # Scale hunger gain by nutritional value (0.2 to 1.0 from get_nutritional_value)
-                # A dying plant (0.2) will give 80 hunger, while a mature plant (1.0) gives 400
-                hunger_gain = int(self.hunger_gain_from_plant * nutrition)
+                # Scale hunger gain - divide nutrition by 2 so it takes about 2-3 plants to recover
+                hunger_gain = int(self.hunger_gain_from_plant * (nutrition / 2))
                 
                 # Apply the gains
                 self.hunger = min(self.max_hunger, self.hunger + hunger_gain)

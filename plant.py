@@ -1019,10 +1019,13 @@ class Plant:
             'orchid': 1.1          # Orchids are somewhat more nutritious
         }.get(self.plant_type.name, 1.0)
         
-        final_value = maturity_value * state_multiplier * type_multiplier
+        # Calculate raw value
+        raw_value = maturity_value * state_multiplier * type_multiplier
         
-        # Ensure there's always some minimal value
-        return max(0.2, final_value)
+        # Normalize to range [0.2, 1.0]
+        normalized_value = 0.2 + (0.8 * min(1.0, raw_value / (self.base_size * 2)))
+        
+        return normalized_value
 
     def draw(self, surface):
         """Draw the plant"""
