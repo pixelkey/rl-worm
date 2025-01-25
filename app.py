@@ -102,9 +102,16 @@ class WormGame:
         
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
-        self.expression_time = 0  # Time when expression was set
-        self.expression_duration = 2.0  # Duration in seconds before returning to neutral
+        self.target_expression = 0  # Target expression to interpolate towards
+        self.base_expression_speed = 0.5  # Base speed of expression change
+        self.current_expression_speed = 0.5  # Current speed (adjusted by magnitude)
+        self.expression_hold_time = 0  # Time to hold current expression
         self.last_time = time.time()  # For tracking time between frames
+        
+        # Reward normalization
+        self.reward_window = []  # Keep track of recent rewards for normalization
+        self.reward_window_size = 100  # Number of rewards to use for calculating mean/std
+        self.min_std = 1.0  # Minimum standard deviation to prevent division by zero
         
         # Hunger and growth mechanics
         self.max_hunger = 1000
@@ -234,25 +241,26 @@ class WormGame:
         self.bottom_wall = get_jagged_wall_points((margin, self.height-margin), (self.width-margin, self.height-margin), self.wall_points)
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 100.0  # Doubled from 50.0
-        self.REWARD_FOOD_HUNGER_SCALE = 5.0  # Increased from 3.0
-        self.REWARD_GROWTH = 30.0  # Doubled from 15.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.2  # Increased from 0.1
-        self.REWARD_EXPLORATION = 0.05  # Increased from 0.01
+        self.REWARD_FOOD_BASE = 250.0  # Increased for more visible smile
+        self.REWARD_FOOD_HUNGER_SCALE = 3.0  # Multiplier for hunger ratio
+        self.REWARD_GROWTH = 15.0  # Additional reward for growing when healthy
+        self.REWARD_SMOOTH_MOVEMENT = 0.1  # Small reward for smooth movement
+        self.REWARD_EXPLORATION = 0.01  # Tiny reward for exploring
         
-        self.PENALTY_WALL = -10.0  # Stronger wall penalty to discourage wall-hugging
-        self.PENALTY_WALL_STAY = -5.0  # New penalty for staying near walls
-        self.PENALTY_SHARP_TURN = -0.5  # Reduced from -1.0
-        self.PENALTY_STARVATION_BASE = -0.1  # Reduced from -0.2
-        self.PENALTY_DIRECTION_CHANGE = -0.1  # Reduced from -0.2
-        self.PENALTY_SHRINK = -20.0  # New penalty for losing a segment
-        
-        # Expression scaling
-        self.EXPRESSION_SCALE = 2.5  # Divide rewards/penalties by this to get expression
+        self.PENALTY_WALL = -10.0  
+        self.PENALTY_WALL_STAY = -5.0  
+        self.PENALTY_SHARP_TURN = -1.0  
+        self.PENALTY_STARVATION_BASE = -0.2  
+        self.PENALTY_DIRECTION_CHANGE = -0.2  
+        self.PENALTY_SHRINK = -20.0  
         
         # Initialize worm
         self.reset()
-
+        
+        # Debug info
+        self.last_reward = 0
+        self.last_reward_source = "None"
+        
     def spawn_plant(self):
         """Try to spawn a new plant if conditions are met"""
         margin = self.game_height // 10
@@ -341,11 +349,11 @@ class WormGame:
                     green_val = int(150 - (100 * (self.num_segments-1) / (self.max_segments - 1)))
                     self.body_colors.append((70, green_val + 30, 20))
                     # Show happy expression for growing
-                    self.expression = 1
+                    self.target_expression = 1
                     self.expression_time = time.time()
                 else:
                     # Expression based on nutritional value
-                    self.expression = min(1.0, nutrition)  # Better nutrition = happier expression
+                    self.target_expression = min(1.0, nutrition)  # Better nutrition = happier expression
                     self.expression_time = time.time()
                 
                 # Remove the plant after eating it
@@ -369,7 +377,7 @@ class WormGame:
         if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
             if self.num_segments > self.min_segments:
                 # Show sad expression when shrinking
-                self.expression = -1
+                self.target_expression = -1
                 self.expression_time = time.time()
                 # Remove last segment
                 self.num_segments -= 1
@@ -382,7 +390,7 @@ class WormGame:
                 return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
-                self.expression = -1
+                self.target_expression = -1
                 self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
@@ -399,6 +407,11 @@ class WormGame:
         # Store previous state for reward calculation
         prev_hunger = self.hunger
         prev_num_segments = len(self.positions)
+        prev_action = self.prev_action
+        
+        # Calculate reward
+        reward = 0
+        angle_diff = 0  # Initialize angle_diff
         
         # Execute action and update target angle
         if action < 8:  # Directional movement
@@ -410,35 +423,51 @@ class WormGame:
             # Calculate movement based on current angle (not target)
             dx = math.cos(self.angle) * self.speed
             dy = math.sin(self.angle) * self.speed
-        else:  # No movement
+            
+            # Movement penalties
+            if action != prev_action:
+                reward += self.PENALTY_DIRECTION_CHANGE
+            if abs(angle_diff) > math.pi / 4:  # Sharp turn
+                reward += self.PENALTY_SHARP_TURN * (abs(angle_diff) / math.pi)
+                self.last_reward_source = f"Sharp Turn ({abs(angle_diff/math.pi):.2f}π)"
+            elif abs(angle_diff) < math.pi / 8:  # Smooth movement
+                reward += self.REWARD_SMOOTH_MOVEMENT
+                if reward > 0:
+                    self.last_reward_source = "Smooth Movement"
+        else:
             dx, dy = 0, 0
         
-        # Update head position
-        new_head_x = self.positions[0][0] + dx
-        new_head_y = self.positions[0][1] + dy
+        # Update position
+        new_head_x = self.x + dx
+        new_head_y = self.y + dy
         
-        # Check wall collisions and constrain position
+        # Wall collision handling with bounce
         wall_collision = False
-        margin = self.head_size
-        if new_head_x < margin:
-            new_head_x = margin
+        if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
+            new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
-            self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
-        elif new_head_x > self.width - margin:
-            new_head_x = self.width - margin
-            wall_collision = True
-            self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
-        if new_head_y < margin:
-            new_head_y = margin
-            wall_collision = True
-            self.angle = -self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
-        elif new_head_y > self.height - margin:
-            new_head_y = self.height - margin
-            wall_collision = True
-            self.angle = -self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
+            reward += self.PENALTY_WALL
             
-        # Update head position
-        self.positions[0] = (new_head_x, new_head_y)
+            # Add bounce effect
+            if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
+                self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
+            else:
+                self.angle = -self.angle + random.uniform(-0.2, 0.2)  # Bounce with slight randomness
+            
+            # Constrain position
+            new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
+            new_head_y = np.clip(new_head_y, self.head_size, self.height - self.head_size)
+            
+            # Extra penalty if too close to walls
+            wall_dist = min(new_head_x - self.head_size, self.width - new_head_x - self.head_size,
+                          new_head_y - self.head_size, self.height - new_head_y - self.head_size)
+            if wall_dist < self.head_size * 2:
+                reward += self.PENALTY_WALL_STAY
+        
+        # Update position
+        self.x = new_head_x
+        self.y = new_head_y
+        self.positions[0] = (self.x, self.y)
         
         # Update body segment positions with fixed spacing
         for i in range(1, self.num_segments):
@@ -471,7 +500,7 @@ class WormGame:
                     self.positions[i] = (new_x, new_y)
                 else:
                     self.positions.append((new_x, new_y))
-            
+        
         # Ensure we have exactly num_segments positions
         while len(self.positions) > self.num_segments:
             self.positions.pop()
@@ -484,93 +513,90 @@ class WormGame:
         alive, did_shrink = self.update_hunger()
         
         # Calculate reward using Maslow's hierarchy
-        reward = 0
-        
-        # 1. Physiological Needs (Survival) - Highest Priority
         if ate_plant:
+            # Physiological needs (survival)
             hunger_ratio = 1 - (self.hunger / self.max_hunger)
             base_reward = self.REWARD_FOOD_BASE * (1 + self.REWARD_FOOD_HUNGER_SCALE * hunger_ratio**2)
             reward += base_reward
-            self.expression = min(1.0, base_reward / self.EXPRESSION_SCALE)
-            self.expression_time = time.time()
+            self.last_reward_source = f"Food (hunger: {hunger_ratio:.2f}, reward: {base_reward:.1f})"
+            
+            # Growth rewards when healthy
+            if self.hunger < self.max_hunger * 0.5:
+                reward += self.REWARD_GROWTH
+                self.last_reward_source += f" + Growth ({self.REWARD_GROWTH})"
         
         # Starvation penalties
         hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio < 0.5:
-            starvation_penalty = self.PENALTY_STARVATION_BASE * ((1 - hunger_ratio) / 0.5) ** 2
+        if hunger_ratio > 0.5:
+            starvation_penalty = self.PENALTY_STARVATION_BASE * ((hunger_ratio - 0.5) / 0.5) ** 2
             reward += starvation_penalty
-            if hunger_ratio < 0.2:
-                self.expression = max(-1.0, starvation_penalty / self.EXPRESSION_SCALE)
-                self.expression_time = time.time()
-        
-        # Movement penalties
-        if action != 4:  # If not staying still
-            # Calculate actual angle change (not target angle)
-            angle_change = abs(self.angle - self.target_angle)
-            if angle_change > math.pi:
-                angle_change = 2 * math.pi - angle_change
-            
-            # Sharp turn penalty
-            if angle_change > math.pi / 4:  # More than 45 degrees
-                reward += self.PENALTY_SHARP_TURN * (angle_change / math.pi)
-                self.expression = max(-1.0, self.PENALTY_SHARP_TURN / self.EXPRESSION_SCALE)
-                self.expression_time = time.time()
-            
-            # Direction change penalty
-            if action != self.prev_action:
-                reward += self.PENALTY_DIRECTION_CHANGE
-            
-            # Smooth movement reward
-            if angle_change < math.pi / 8:  # Less than 22.5 degrees
-                reward += self.REWARD_SMOOTH_MOVEMENT
-        
-        # Wall collision penalty
-        if wall_collision:
-            reward += self.PENALTY_WALL
-            # Add extra penalty if too close to walls
-            wall_dist = min(new_head_x - margin, self.width - margin - new_head_x,
-                          new_head_y - margin, self.height - margin - new_head_y)
-            if wall_dist < self.head_size * 2:
-                reward += self.PENALTY_WALL_STAY
-            self.expression = max(-1.0, self.PENALTY_WALL / self.EXPRESSION_SCALE)
-            self.expression_time = time.time()
-        
-        # Growth rewards when healthy
-        if ate_plant and self.hunger > self.max_hunger * 0.5:
-            reward += self.REWARD_GROWTH
+            if starvation_penalty < -0.1:  # Only update source if penalty is significant
+                self.last_reward_source = f"Starvation ({hunger_ratio:.2f})"
         
         # Shrinking penalty
         if did_shrink:
             reward += self.PENALTY_SHRINK
-            self.expression = max(-1.0, self.PENALTY_SHRINK / self.EXPRESSION_SCALE)
-            self.expression_time = time.time()
+            self.last_reward_source = "Shrinking"
+        
+        # Store the last reward for debugging
+        self.last_reward = reward
+        
+        # Set expression based on current reward using Z-score normalization
+        self.reward_window.append(reward)
+        if len(self.reward_window) > self.reward_window_size:
+            self.reward_window.pop(0)
+        
+        if len(self.reward_window) > 1:  # Need at least 2 samples for std
+            mean_reward = np.mean(self.reward_window)
+            std_reward = max(np.std(self.reward_window), self.min_std)
+            z_score = (reward - mean_reward) / std_reward
+            # Clip z-score to [-2, 2] and scale to [-1, 1]
+            new_target = np.clip(z_score / 2.0, -1, 1)
+            
+            # Calculate magnitude of change
+            change_magnitude = abs(new_target - self.expression)
+            
+            # For large changes, hold the expression longer and change more slowly
+            if change_magnitude > 0.5:  # Significant change
+                # Hold time increases with magnitude (1 to 3 seconds)
+                self.expression_hold_time = time.time() + (1.0 + change_magnitude * 2.0)
+                # Slower speed for bigger changes (down to 0.1x base speed)
+                self.current_expression_speed = self.base_expression_speed / (1.0 + change_magnitude * 2.0)
+            else:
+                # Reset to default speed for small changes
+                self.current_expression_speed = self.base_expression_speed
+                self.expression_hold_time = 0
+            
+            self.target_expression = new_target
+        else:
+            # Fall back to simple normalization until we have enough samples
+            self.target_expression = np.clip(reward / self.REWARD_FOOD_BASE, -1, 1)
         
         # Update previous action
         self.prev_action = action
         
-        # Update episode reward
+        # Update episode tracking
         self.episode_reward += reward
-        
-        # Check if episode is done and level up if score improved
-        if not alive and self.episode_reward > self.level * 100:
-            self.level += 1
-        
-        # Increment steps in level
         self.steps_in_level += 1
         
         # Check if level is complete
-        if self.steps_in_level >= self.steps_for_level:  
+        if not alive and self.episode_reward > self.level * 100:
+            self.level += 1
+        
+        if self.steps_in_level >= self.steps_for_level:
             self.level += 1
             self.steps_in_level = 0
             self.steps_for_level = min(self.max_steps, self.steps_for_level + self.steps_increment)
         
-        return self._get_state(), {
-            'reward': reward,
-            'alive': alive,
+        # Get new state
+        new_state = self._get_state()
+        
+        # Return state with additional info
+        return new_state, reward, not alive, {
             'ate_plant': ate_plant,
             'wall_collision': wall_collision
         }
-        
+    
     def draw(self, surface=None):
         """Draw the game state"""
         if self.headless:
@@ -634,6 +660,22 @@ class WormGame:
         # Draw head with slightly different appearance
         self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, self.head_color, True)
         
+        # Update expression interpolation
+        current_time = time.time()
+        dt = current_time - self.last_time
+        self.last_time = current_time
+        
+        # Only move towards target if we're past the hold time
+        if current_time > self.expression_hold_time:
+            # Smoothly move current expression towards target
+            if self.expression != self.target_expression:
+                diff = self.target_expression - self.expression
+                move = self.current_expression_speed * dt  # Amount to move this frame
+                if abs(diff) <= move:
+                    self.expression = self.target_expression
+                else:
+                    self.expression += move if diff > 0 else -move
+        
         # Draw UI elements in top-right corner
         padding = 5
         meter_width = self.game_width // 6  # Smaller meters
@@ -695,7 +737,9 @@ class WormGame:
         stats = [
             f"Level: {self.level}",
             f"Score: {int(self.episode_reward)}",
-            f"Length: {self.num_segments}"
+            f"Length: {self.num_segments}",
+            f"Last Reward: {self.last_reward:.1f}",
+            f"Source: {self.last_reward_source}"
         ]
         
         for stat in stats:
@@ -738,7 +782,7 @@ class WormGame:
         
         if is_head:
             # Rotate face 90 degrees to face movement direction
-            face_angle = angle - math.pi/2  # Changed from + to - to rotate face forward
+            face_angle = angle - math.pi/2
             
             # Calculate eye positions (rotate around head center)
             eye_offset = self.head_size * 0.3  # Distance from center
@@ -810,37 +854,19 @@ class WormGame:
                            (int(right_brow_start_x), int(right_brow_start_y)),
                            (int(right_brow_end_x), int(right_brow_end_y)), brow_thickness)
             
-            # Update expression timing
-            current_time = time.time()
-            dt = current_time - self.last_time
-            self.last_time = current_time
-            
-            # Calculate expression interpolation
-            if self.expression != 0:
-                time_since_expression = current_time - self.expression_time
-                if time_since_expression < self.expression_duration:
-                    # Smoothly interpolate back to neutral
-                    t = time_since_expression / self.expression_duration
-                    current_expression = self.expression * (1 - t)
-                else:
-                    self.expression = 0
-                    current_expression = 0
-            else:
-                current_expression = 0
-            
             # Draw mouth (centered and below eyes)
             mouth_width = self.head_size * 0.6
             mouth_height = self.head_size * 0.2
-            mouth_y_offset = self.head_size * 0.4  # Added back the y_offset to move mouth down
+            mouth_y_offset = self.head_size * 0.4
             mouth_thickness = max(3, self.head_size // 8)
             
             # Base mouth points (before rotation)
             mouth_left_x = -mouth_width/2
             mouth_right_x = mouth_width/2
-            mouth_y = mouth_height + mouth_y_offset  # Added y_offset to base position
+            mouth_y = mouth_height + mouth_y_offset
             
             # Control point for quadratic curve (moves up/down based on expression)
-            control_y = mouth_y + (mouth_height * 2 * current_expression)
+            control_y = mouth_y + (mouth_height * 2 * self.expression)
             
             # Rotate mouth points
             rotated_left = (
@@ -998,7 +1024,7 @@ class WormGame:
         if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
             if self.num_segments > self.min_segments:
                 # Show sad expression when shrinking
-                self.expression = -1
+                self.target_expression = -1
                 self.expression_time = time.time()
                 # Remove last segment
                 self.num_segments -= 1
@@ -1011,7 +1037,7 @@ class WormGame:
                 return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
-                self.expression = -1
+                self.target_expression = -1
                 self.expression_time = time.time()
         
         # Die if no segments left or hunger is zero
@@ -1198,9 +1224,7 @@ if __name__ == "__main__":
         action = agent.act(state)
         
         # Execute action and get next state
-        next_state, info = game.step(action)
-        reward = info.get('reward', 0)
-        done = not info['alive']
+        next_state, reward, done, _ = game.step(action)
         
         # Remember experience
         agent.remember(state, action, reward, next_state, done)

@@ -225,13 +225,7 @@ def fast_training():
                 
                 # Get action and update game
                 action = agent.act(state)
-                next_state, info = game.step(action)
-                
-                # Get reward from game
-                reward = info.get('reward', 0)
-                done = not info['alive']
-                
-                game_time += time.time() - step_start
+                next_state, reward, done, info = game.step(action)
                 
                 # Track metrics
                 if info['ate_plant']:
