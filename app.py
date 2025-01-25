@@ -63,6 +63,23 @@ class WormGame:
         self.game_x_offset = (self.screen_width - self.game_width) // 2
         self.game_y_offset = (self.screen_height - self.game_height) // 2
         
+        # Level and step tracking
+        self.level = 1
+        self.episode_reward = 0.0
+        self.steps_in_level = 0
+        self.min_steps = 2000  # Start with 2000 steps like training
+        self.max_steps = 5000  # Maximum steps like training
+        self.steps_increment = 100  # How many steps to add when leveling up
+        self.steps_for_level = self.min_steps  # Current level's step requirement
+        
+        # Add level and episode tracking
+        self.base_steps_for_level = 1000
+        self.level_step_increase = 0.2  # 20% increase per level
+        
+        # Font for displaying text
+        if not headless:
+            self.font = pygame.font.Font(None, 36)
+        
         # Movement properties
         self.angle = 0  # Current angle
         self.target_angle = 0  # Target angle
@@ -534,6 +551,22 @@ class WormGame:
         # Update previous action
         self.prev_action = action
         
+        # Update episode reward
+        self.episode_reward += reward
+        
+        # Check if episode is done and level up if score improved
+        if not alive and self.episode_reward > self.level * 100:
+            self.level += 1
+        
+        # Increment steps in level
+        self.steps_in_level += 1
+        
+        # Check if level is complete
+        if self.steps_in_level >= self.steps_for_level:  
+            self.level += 1
+            self.steps_in_level = 0
+            self.steps_for_level = min(self.max_steps, self.steps_for_level + self.steps_increment)
+        
         return self._get_state(), {
             'reward': reward,
             'alive': alive,
@@ -604,54 +637,101 @@ class WormGame:
         # Draw head with slightly different appearance
         self._draw_segment(head_pos, head_angle, self.segment_width * 1.2, self.head_color, True)
         
+        # Draw UI elements in top-right corner
+        padding = 5
+        meter_width = self.game_width // 6  # Smaller meters
+        meter_height = self.game_height // 40  # Thinner meters
+        meter_x = self.game_width - meter_width - padding * 2
+        meter_y = padding * 2
+        
+        # Use smaller font for all text
+        font = pygame.font.Font(None, self.game_height // 30)  # Smaller font
+        
         # Draw hunger meter
-        meter_width = self.game_width // 4
-        meter_height = self.game_height // 20
-        meter_x = self.game_width // 20
-        meter_y = self.game_height // 20
-        border_color = (200, 200, 200)
+        pygame.draw.rect(draw_surface, (100, 100, 100),
+                       (meter_x, meter_y, meter_width, meter_height))
         
-        # Calculate fill color based on hunger
-        hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio > 0.6:
-            fill_color = (0, 255, 0)  # Green when full
-        elif hunger_ratio > 0.3:
-            fill_color = (255, 255, 0)  # Yellow when half
-        else:
-            fill_color = (255, 0, 0)  # Red when low
-        
-        # Draw border
-        pygame.draw.rect(draw_surface, border_color, 
-                       (meter_x, meter_y, meter_width, meter_height), 2)
-        
-        # Draw fill
-        fill_width = max(0, min(meter_width-4, int((meter_width-4) * hunger_ratio)))
+        # Draw hunger fill
+        fill_width = int((meter_width - 2) * (self.hunger / self.max_hunger))
+        fill_color = (
+            int(255 * (1 - self.hunger/self.max_hunger)),
+            int(255 * (self.hunger/self.max_hunger)),
+            0
+        )
         pygame.draw.rect(draw_surface, fill_color,
-                       (meter_x+2, meter_y+2, fill_width, meter_height-4))
+                       (meter_x+1, meter_y+1, fill_width, meter_height-2))
         
-        # Draw length indicator
-        length_text = f"Length: {self.num_segments}"
-        font = pygame.font.Font(None, self.game_height // 20)
-        text_surface = font.render(length_text, True, (200, 200, 200))
+        # Draw "Hunger" label
+        hunger_text = "Hunger"
+        text_surface = font.render(hunger_text, True, (200, 200, 200))
         text_rect = text_surface.get_rect()
-        text_rect.topleft = (meter_x, meter_y + meter_height + 5)
+        text_rect.right = meter_x - padding
+        text_rect.centery = meter_y + meter_height//2
+        draw_surface.blit(text_surface, text_rect)
+        
+        # Draw level progress bar
+        progress_y = meter_y + meter_height + padding
+        pygame.draw.rect(draw_surface, (100, 100, 100),
+                       (meter_x, progress_y, meter_width, meter_height))
+        
+        # Draw progress fill
+        progress = min(1.0, self.steps_in_level / self.steps_for_level)  
+        fill_width = int((meter_width - 2) * progress)
+        fill_color = (100, 200, 255)
+        pygame.draw.rect(draw_surface, fill_color,
+                       (meter_x+1, progress_y+1, fill_width, meter_height-2))
+        
+        # Draw "Level Progress" label
+        progress_label = "Progress"  # Shortened for space
+        text_surface = font.render(progress_label, True, (200, 200, 200))
+        text_rect = text_surface.get_rect()
+        text_rect.right = meter_x - padding
+        text_rect.centery = progress_y + meter_height//2
+        draw_surface.blit(text_surface, text_rect)
+        
+        # Draw stats in top-left corner
+        stats_x = padding * 2
+        stats_y = padding * 2
+        line_height = self.game_height // 30
+        
+        # Draw stats with smaller font
+        stats = [
+            f"Level: {self.level}",
+            f"Score: {int(self.episode_reward)}",
+            f"Length: {self.num_segments}"
+        ]
+        
+        for stat in stats:
+            text_surface = font.render(stat, True, (200, 200, 200))
+            text_rect = text_surface.get_rect()
+            text_rect.topleft = (stats_x, stats_y)
+            draw_surface.blit(text_surface, text_rect)
+            stats_y += line_height
+        
+        # Draw steps counter below level progress bar
+        steps_text = f"{self.steps_in_level}/{self.steps_for_level}"  
+        text_surface = font.render(steps_text, True, (200, 200, 200))
+        text_rect = text_surface.get_rect()
+        text_rect.right = self.game_width - padding * 2
+        text_rect.top = progress_y + meter_height + padding
         draw_surface.blit(text_surface, text_rect)
         
         # Draw game area border
-        # Clear screen
-        surface = pygame.display.get_surface()
-        surface.fill((20, 20, 20))
-        
-        # Draw game surface onto main screen with offset
-        surface.blit(draw_surface, (self.game_x_offset, self.game_y_offset))
-        
-        # Draw border around game area
-        pygame.draw.rect(surface, (100, 100, 100), 
-                       (self.game_x_offset-2, self.game_y_offset-2, 
-                        self.game_width+4, self.game_height+4), 2)
-        
-        pygame.display.flip()
-    
+        if not surface:
+            # Clear screen
+            screen = pygame.display.get_surface()
+            screen.fill((20, 20, 20))
+            
+            # Draw game surface onto main screen with offset
+            screen.blit(draw_surface, (self.game_x_offset, self.game_y_offset))
+            
+            # Draw border around game area
+            pygame.draw.rect(screen, (100, 100, 100), 
+                           (self.game_x_offset-2, self.game_y_offset-2, 
+                            self.game_width+4, self.game_height+4), 2)
+            
+            pygame.display.flip()
+
     def _draw_segment(self, pos, angle, width, color, is_head=False):
         """Draw a single body segment"""
         x, y = pos
@@ -847,6 +927,12 @@ class WormGame:
             self.spawn_plant()
             attempts += 1
             
+        # Reset episode reward
+        self.episode_reward = 0.0
+        
+        # Reset steps in level
+        self.steps_in_level = 0
+        
         return self._get_state()
         
     def update_hunger(self):
