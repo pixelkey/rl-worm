@@ -349,12 +349,10 @@ class WormGame:
                     green_val = int(150 - (100 * (self.num_segments-1) / (self.max_segments - 1)))
                     self.body_colors.append((70, green_val + 30, 20))
                     # Show happy expression for growing
-                    self.target_expression = 1
-                    self.expression_time = time.time()
+                    self.set_expression(1.0, 2.0)  # Very happy, strong magnitude
                 else:
                     # Expression based on nutritional value
-                    self.target_expression = min(1.0, nutrition)  # Better nutrition = happier expression
-                    self.expression_time = time.time()
+                    self.set_expression(min(1.0, nutrition), nutrition)  # Better nutrition = happier expression
                 
                 # Remove the plant after eating it
                 self.plants.remove(plant)
@@ -377,8 +375,7 @@ class WormGame:
         if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
             if self.num_segments > self.min_segments:
                 # Show sad expression when shrinking
-                self.target_expression = -1
-                self.expression_time = time.time()
+                self.set_expression(-1.0, 1.5)  # Very sad, strong magnitude
                 # Remove last segment
                 self.num_segments -= 1
                 if len(self.positions) > self.num_segments:
@@ -390,8 +387,7 @@ class WormGame:
                 return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
-                self.target_expression = -1
-                self.expression_time = time.time()
+                self.set_expression(-1.0, 2.0)  # Very sad, strongest magnitude
         
         # Die if no segments left or hunger is zero
         return self.hunger > 0 and self.num_segments > 0, False
@@ -1045,8 +1041,7 @@ class WormGame:
         if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
             if self.num_segments > self.min_segments:
                 # Show sad expression when shrinking
-                self.target_expression = -1
-                self.expression_time = time.time()
+                self.set_expression(-1.0, 1.5)  # Very sad, strong magnitude
                 # Remove last segment
                 self.num_segments -= 1
                 if len(self.positions) > self.num_segments:
@@ -1058,12 +1053,18 @@ class WormGame:
                 return self.hunger > 0 and self.num_segments > 0, True
             elif old_hunger > 0 and self.hunger == 0:
                 # Show very sad expression when at minimum size and starving
-                self.target_expression = -1
-                self.expression_time = time.time()
+                self.set_expression(-1.0, 2.0)  # Very sad, strongest magnitude
         
         # Die if no segments left or hunger is zero
         return self.hunger > 0 and self.num_segments > 0, False
         
+    def set_expression(self, target, magnitude):
+        """Set the target expression and magnitude"""
+        self.target_expression = target
+        self.expression_time = time.time()
+        self.expression_hold_time = time.time() + (4.0 + magnitude * 2.0)
+        self.current_expression_speed = self.base_expression_speed / (1.0 + magnitude * 1.5)
+
 class WormAgent:
     def __init__(self, state_size, action_size):
         self.state_size = state_size
