@@ -103,15 +103,15 @@ class WormGame:
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
         self.target_expression = 0  # Target expression to interpolate towards
-        self.base_expression_speed = 0.5  # Base speed of expression change
-        self.current_expression_speed = 0.5  # Current speed (adjusted by magnitude)
+        self.base_expression_speed = 2.0  # Increased from 0.5 for faster changes
+        self.current_expression_speed = 2.0  # Current speed (adjusted by magnitude)
         self.expression_hold_time = 0  # Time to hold current expression
         self.last_time = time.time()  # For tracking time between frames
         
         # Reward normalization
         self.reward_window = []  # Keep track of recent rewards for normalization
-        self.reward_window_size = 100  # Number of rewards to use for calculating mean/std
-        self.min_std = 1.0  # Minimum standard deviation to prevent division by zero
+        self.reward_window_size = 20  # Reduced from 100 to be more responsive
+        self.min_std = 5.0  # Increased from 1.0 to allow more variation
         
         # Hunger and growth mechanics
         self.max_hunger = 1000
@@ -415,31 +415,44 @@ class WormGame:
         
         # Execute action and update target angle
         if action < 8:  # Directional movement
-            self.target_angle = (action / 8) * 2 * math.pi
+            new_target = (action / 8) * 2 * math.pi
+            # Check for sharp turns
+            angle_diff = abs((new_target - self.target_angle + math.pi) % (2 * math.pi) - math.pi)
+            if angle_diff > math.pi/2:  # More than 90 degrees
+                reward += self.PENALTY_SHARP_TURN
+                self.last_reward_source = f"Sharp Turn ({self.PENALTY_SHARP_TURN})"
+            # Check for direction changes
+            if action != self.prev_action:
+                reward += self.PENALTY_DIRECTION_CHANGE
+                self.last_reward_source = f"Direction Change ({self.PENALTY_DIRECTION_CHANGE})"
+            
+            self.target_angle = new_target
             # Smoothly interpolate current angle towards target
             angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
+            old_angle = self.angle
             self.angle += np.clip(angle_diff, -self.angular_speed, self.angular_speed)
             
-            # Calculate movement based on current angle (not target)
+            # Reward smooth movement (small angle changes)
+            if abs(angle_diff) < math.pi/4:  # Less than 45 degrees
+                reward += self.REWARD_SMOOTH_MOVEMENT
+                self.last_reward_source = f"Smooth Movement ({self.REWARD_SMOOTH_MOVEMENT})"
+                
+            # Calculate movement based on current angle
             dx = math.cos(self.angle) * self.speed
             dy = math.sin(self.angle) * self.speed
-            
-            # Movement penalties
-            if action != prev_action:
-                reward += self.PENALTY_DIRECTION_CHANGE
-            if abs(angle_diff) > math.pi / 4:  # Sharp turn
-                reward += self.PENALTY_SHARP_TURN * (abs(angle_diff) / math.pi)
-                self.last_reward_source = f"Sharp Turn ({abs(angle_diff/math.pi):.2f}π)"
-            elif abs(angle_diff) < math.pi / 8:  # Smooth movement
-                reward += self.REWARD_SMOOTH_MOVEMENT
-                if reward > 0:
-                    self.last_reward_source = "Smooth Movement"
         else:
             dx, dy = 0, 0
         
         # Update position
         new_head_x = self.x + dx
         new_head_y = self.y + dy
+        old_pos = self.positions[0] if self.positions else (self.x, self.y)
+        self.positions[0] = (self.x, self.y)
+        
+        # Reward exploration (moving to new areas)
+        if abs(self.x - old_pos[0]) > self.head_size or abs(self.y - old_pos[1]) > self.head_size:
+            reward += self.REWARD_EXPLORATION
+            self.last_reward_source = f"Exploration ({self.REWARD_EXPLORATION})"
         
         # Wall collision handling with bounce
         wall_collision = False
@@ -447,6 +460,7 @@ class WormGame:
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             reward += self.PENALTY_WALL
+            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL})"
             
             # Add bounce effect
             if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
@@ -463,11 +477,11 @@ class WormGame:
                           new_head_y - self.head_size, self.height - new_head_y - self.head_size)
             if wall_dist < self.head_size * 2:
                 reward += self.PENALTY_WALL_STAY
+                self.last_reward_source += f" + Wall Stay ({self.PENALTY_WALL_STAY})"
         
         # Update position
         self.x = new_head_x
         self.y = new_head_y
-        self.positions[0] = (self.x, self.y)
         
         # Update body segment positions with fixed spacing
         for i in range(1, self.num_segments):
@@ -537,7 +551,7 @@ class WormGame:
         if did_shrink:
             reward += self.PENALTY_SHRINK
             self.last_reward_source = "Shrinking"
-        
+
         # Store the last reward for debugging
         self.last_reward = reward
         
@@ -550,18 +564,25 @@ class WormGame:
             mean_reward = np.mean(self.reward_window)
             std_reward = max(np.std(self.reward_window), self.min_std)
             z_score = (reward - mean_reward) / std_reward
-            # Clip z-score to [-2, 2] and scale to [-1, 1]
-            new_target = np.clip(z_score / 2.0, -1, 1)
+            
+            # Make positive rewards (like food) more impactful on expression
+            if reward > mean_reward:
+                z_score = z_score * 3.5  # Even stronger boost for positive rewards
+            elif reward < mean_reward:
+                z_score = z_score * 2.0  # Stronger boost for negative rewards too
+            
+            # Clip z-score to [-2, 2] and scale to [-1, 1] with less dampening
+            new_target = np.clip(z_score / 1.2, -1, 1)  # Even less dampening
             
             # Calculate magnitude of change
             change_magnitude = abs(new_target - self.expression)
             
-            # For large changes, hold the expression longer and change more slowly
-            if change_magnitude > 0.5:  # Significant change
-                # Hold time increases with magnitude (1 to 3 seconds)
-                self.expression_hold_time = time.time() + (1.0 + change_magnitude * 2.0)
-                # Slower speed for bigger changes (down to 0.1x base speed)
-                self.current_expression_speed = self.base_expression_speed / (1.0 + change_magnitude * 2.0)
+            # For large changes, hold the expression longer
+            if change_magnitude > 0.15:  # Even lower threshold
+                # Hold time increases with magnitude (4 to 6 seconds)
+                self.expression_hold_time = time.time() + (4.0 + change_magnitude * 2.0)
+                # Slower speed for bigger changes (down to 0.3x base speed)
+                self.current_expression_speed = self.base_expression_speed / (1.0 + change_magnitude * 1.5)
             else:
                 # Reset to default speed for small changes
                 self.current_expression_speed = self.base_expression_speed

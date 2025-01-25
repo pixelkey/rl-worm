@@ -61,12 +61,12 @@ class WormAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.memory = deque(maxlen=100000)
-        self.batch_size = 4096
+        self.batch_size = 512  # Reduced from 4096 for more stable learning
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.995
-        self.learning_rate = 0.001
+        self.epsilon_decay = 0.9995  # Slower decay for better exploration
+        self.learning_rate = 0.0005  # Reduced for more stable learning
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         print(f"Using device: {self.device}")
