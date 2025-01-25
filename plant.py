@@ -8,7 +8,8 @@ class PlantType:
         self.max_branch_depth = characteristics.get('max_branch_depth', 3)
         self.base_color = characteristics.get('base_color', (20, 150, 20))
         self.leaf_color = characteristics.get('leaf_color', None)  # If None, use base_color
-        self.flower_color = characteristics.get('flower_color', None)  # For flowering plants
+        self.flower_colors = characteristics.get('flower_colors', [])  # List of possible flower colors
+        self.flower_type = characteristics.get('flower_type', 'simple')  # Type of flower to draw
         self.stem_color = characteristics.get('stem_color', None)  # If None, use base_color
         self.leaf_type = characteristics.get('leaf_type', 'normal')
         self.stem_type = characteristics.get('stem_type', 'straight')
@@ -17,6 +18,7 @@ class PlantType:
         self.mature_height_multiplier = characteristics.get('mature_height_multiplier', 1.0)
         self.has_flowers = characteristics.get('has_flowers', False)
         self.flower_probability = characteristics.get('flower_probability', 0.3)
+        self.petal_count = characteristics.get('petal_count', 5)
 
 # Define different plant types
 PLANT_TYPES = {
@@ -42,11 +44,12 @@ PLANT_TYPES = {
         'branch_density': (0.7, 1.0),
         'mature_height_multiplier': 0.7
     }),
-    'flower': PlantType('flower', {
-        'base_color': (150, 50, 150),  # Purple base for flower
+    'purple_flower': PlantType('purple_flower', {
+        'base_color': (150, 50, 150),
         'leaf_color': (40, 160, 40),
         'stem_color': (60, 140, 60),
-        'flower_color': (200, 100, 200),  # Bright purple flowers
+        'flower_colors': [(200, 100, 200), (180, 80, 180), (220, 120, 220)],  # Purple variations
+        'flower_type': 'star',
         'max_branch_depth': 3,
         'leaf_type': 'pointed',
         'stem_type': 'straight',
@@ -54,7 +57,56 @@ PLANT_TYPES = {
         'branch_density': (0.5, 0.7),
         'mature_height_multiplier': 1.2,
         'has_flowers': True,
-        'flower_probability': 0.4
+        'flower_probability': 0.4,
+        'petal_count': 5
+    }),
+    'daisy': PlantType('daisy', {
+        'base_color': (60, 160, 60),
+        'leaf_color': (40, 150, 40),
+        'stem_color': (80, 140, 80),
+        'flower_colors': [(255, 255, 255), (255, 250, 240), (255, 245, 230)],  # White variations
+        'flower_type': 'daisy',
+        'max_branch_depth': 3,
+        'leaf_type': 'pointed',
+        'stem_type': 'straight',
+        'growth_speed': 1.0,
+        'branch_density': (0.4, 0.6),
+        'mature_height_multiplier': 1.0,
+        'has_flowers': True,
+        'flower_probability': 0.5,
+        'petal_count': 12
+    }),
+    'rose': PlantType('rose', {
+        'base_color': (60, 140, 60),
+        'leaf_color': (30, 130, 30),
+        'stem_color': (80, 100, 40),
+        'flower_colors': [(220, 50, 50), (200, 40, 40), (180, 30, 30)],  # Red variations
+        'flower_type': 'rose',
+        'max_branch_depth': 3,
+        'leaf_type': 'pointed',
+        'stem_type': 'straight',
+        'growth_speed': 0.9,
+        'branch_density': (0.6, 0.8),
+        'mature_height_multiplier': 1.1,
+        'has_flowers': True,
+        'flower_probability': 0.3,
+        'petal_count': 20
+    }),
+    'sunflower': PlantType('sunflower', {
+        'base_color': (80, 160, 80),
+        'leaf_color': (60, 150, 60),
+        'stem_color': (100, 140, 60),
+        'flower_colors': [(255, 200, 0), (255, 180, 0), (255, 160, 0)],  # Yellow variations
+        'flower_type': 'sunflower',
+        'max_branch_depth': 2,
+        'leaf_type': 'pointed',
+        'stem_type': 'straight',
+        'growth_speed': 1.2,
+        'branch_density': (0.3, 0.5),
+        'mature_height_multiplier': 1.5,
+        'has_flowers': True,
+        'flower_probability': 0.8,
+        'petal_count': 34
     }),
     'vine': PlantType('vine', {
         'base_color': (30, 160, 30),
@@ -343,33 +395,116 @@ class Plant:
         if size < 2 or not self.plant_type.has_flowers:
             return
             
-        # Center of the flower
-        center_size = size * 0.3
-        pygame.draw.circle(surface, (255, 220, 0), (int(pos[0]), int(pos[1])), int(center_size))
-        
-        # Draw petals
-        num_petals = 5
+        flower_color = random.choice(self.plant_type.flower_colors)
         petal_size = size * 0.8
-        flower_color = self.plant_type.flower_color
+        num_petals = self.plant_type.petal_count
         
-        for i in range(num_petals):
-            petal_angle = angle + (i * (360 / num_petals))
-            # Petal points
-            tip_x = pos[0] + math.cos(math.radians(petal_angle)) * petal_size
-            tip_y = pos[1] - math.sin(math.radians(petal_angle)) * petal_size
+        if self.plant_type.flower_type == 'star':
+            # Star-shaped flower with pointed petals
+            center_size = size * 0.2
+            pygame.draw.circle(surface, (255, 220, 0), (int(pos[0]), int(pos[1])), int(center_size))
             
-            # Draw petal
-            left_x = pos[0] + math.cos(math.radians(petal_angle - 30)) * (petal_size * 0.4)
-            left_y = pos[1] - math.sin(math.radians(petal_angle - 30)) * (petal_size * 0.4)
-            right_x = pos[0] + math.cos(math.radians(petal_angle + 30)) * (petal_size * 0.4)
-            right_y = pos[1] - math.sin(math.radians(petal_angle + 30)) * (petal_size * 0.4)
+            for i in range(num_petals):
+                petal_angle = angle + (i * (360 / num_petals))
+                tip_x = pos[0] + math.cos(math.radians(petal_angle)) * petal_size
+                tip_y = pos[1] - math.sin(math.radians(petal_angle)) * petal_size
+                left_x = pos[0] + math.cos(math.radians(petal_angle - 20)) * (petal_size * 0.3)
+                left_y = pos[1] - math.sin(math.radians(petal_angle - 20)) * (petal_size * 0.3)
+                right_x = pos[0] + math.cos(math.radians(petal_angle + 20)) * (petal_size * 0.3)
+                right_y = pos[1] - math.sin(math.radians(petal_angle + 20)) * (petal_size * 0.3)
+                
+                pygame.draw.polygon(surface, flower_color, [
+                    (pos[0], pos[1]),
+                    (left_x, left_y),
+                    (tip_x, tip_y),
+                    (right_x, right_y)
+                ])
+                
+        elif self.plant_type.flower_type == 'daisy':
+            # Daisy with rounded petals and yellow center
+            center_size = size * 0.3
+            pygame.draw.circle(surface, (255, 220, 0), (int(pos[0]), int(pos[1])), int(center_size))
             
-            pygame.draw.polygon(surface, flower_color, [
-                (pos[0], pos[1]),
-                (left_x, left_y),
-                (tip_x, tip_y),
-                (right_x, right_y)
-            ])
+            for i in range(num_petals):
+                petal_angle = angle + (i * (360 / num_petals))
+                base_x = pos[0] + math.cos(math.radians(petal_angle)) * center_size
+                base_y = pos[1] - math.sin(math.radians(petal_angle)) * center_size
+                tip_x = pos[0] + math.cos(math.radians(petal_angle)) * petal_size
+                tip_y = pos[1] - math.sin(math.radians(petal_angle)) * petal_size
+                
+                # Draw oval-shaped petal
+                points = []
+                for t in range(6):
+                    t = t / 5
+                    ctrl_x = base_x + (tip_x - base_x) * t
+                    ctrl_y = base_y + (tip_y - base_y) * t
+                    offset = math.sin(t * math.pi) * size * 0.15
+                    ctrl_x += math.cos(math.radians(petal_angle + 90)) * offset
+                    ctrl_y -= math.sin(math.radians(petal_angle + 90)) * offset
+                    points.append((ctrl_x, ctrl_y))
+                
+                if len(points) >= 3:
+                    pygame.draw.polygon(surface, flower_color, points)
+                    
+        elif self.plant_type.flower_type == 'rose':
+            # Rose with layered petals
+            center_size = size * 0.2
+            for layer in range(3):  # Multiple layers of petals
+                layer_size = petal_size * (0.6 + layer * 0.2)
+                layer_petals = num_petals - layer * 4
+                layer_color = (
+                    max(0, min(255, flower_color[0] - layer * 20)),
+                    max(0, min(255, flower_color[1] - layer * 20)),
+                    max(0, min(255, flower_color[2] - layer * 20))
+                )
+                
+                for i in range(layer_petals):
+                    petal_angle = angle + (i * (360 / layer_petals)) + layer * 10
+                    # Draw curved petal
+                    points = []
+                    for t in range(8):
+                        t = t / 7
+                        radius = layer_size * (0.3 + t * 0.7)
+                        curve = math.sin(t * math.pi) * size * 0.2
+                        petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                        petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                        petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                        petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                        points.append((petal_x, petal_y))
+                    
+                    if len(points) >= 3:
+                        pygame.draw.polygon(surface, layer_color, points)
+                        
+        elif self.plant_type.flower_type == 'sunflower':
+            # Sunflower with seed pattern center
+            center_size = size * 0.4
+            # Draw dark center with seed pattern
+            pygame.draw.circle(surface, (101, 67, 33), (int(pos[0]), int(pos[1])), int(center_size))
+            # Add seed pattern
+            for i in range(int(center_size * 2)):
+                angle_step = i * 137.5  # Golden angle
+                radius = math.sqrt(i) * center_size / 6
+                seed_x = pos[0] + math.cos(math.radians(angle_step)) * radius
+                seed_y = pos[1] - math.sin(math.radians(angle_step)) * radius
+                pygame.draw.circle(surface, (60, 40, 20), (int(seed_x), int(seed_y)), 1)
+            
+            # Draw petals
+            for i in range(num_petals):
+                petal_angle = angle + (i * (360 / num_petals))
+                # Draw long pointed petal
+                tip_x = pos[0] + math.cos(math.radians(petal_angle)) * petal_size
+                tip_y = pos[1] - math.sin(math.radians(petal_angle)) * petal_size
+                left_x = pos[0] + math.cos(math.radians(petal_angle - 15)) * (petal_size * 0.3)
+                left_y = pos[1] - math.sin(math.radians(petal_angle - 15)) * (petal_size * 0.3)
+                right_x = pos[0] + math.cos(math.radians(petal_angle + 15)) * (petal_size * 0.3)
+                right_y = pos[1] - math.sin(math.radians(petal_angle + 15)) * (petal_size * 0.3)
+                
+                pygame.draw.polygon(surface, flower_color, [
+                    (pos[0], pos[1]),
+                    (left_x, left_y),
+                    (tip_x, tip_y),
+                    (right_x, right_y)
+                ])
 
     def draw_fractal_leaf(self, surface, pos, angle, size):
         """Draw a fractal-like leaf with veins"""
