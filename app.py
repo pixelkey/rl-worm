@@ -528,11 +528,13 @@ class WormGame:
             hunger_ratio = 1 - (self.hunger / self.max_hunger)
             base_reward = self.REWARD_FOOD_BASE * (1 + self.REWARD_FOOD_HUNGER_SCALE * hunger_ratio**2)
             reward += base_reward
+            print(f"Food reward: {base_reward:.1f} (hunger_ratio: {hunger_ratio:.2f})")
             self.last_reward_source = f"Food (hunger: {hunger_ratio:.2f}, reward: {base_reward:.1f})"
             
             # Growth rewards when healthy
             if self.hunger < self.max_hunger * 0.5:
                 reward += self.REWARD_GROWTH
+                print(f"Growth reward: {self.REWARD_GROWTH}")
                 self.last_reward_source += f" + Growth ({self.REWARD_GROWTH})"
         
         # Starvation penalties
@@ -541,50 +543,87 @@ class WormGame:
             starvation_penalty = self.PENALTY_STARVATION_BASE * ((hunger_ratio - 0.5) / 0.5) ** 2
             reward += starvation_penalty
             if starvation_penalty < -0.1:  # Only update source if penalty is significant
+                print(f"Starvation penalty: {starvation_penalty:.1f} (hunger_ratio: {hunger_ratio:.2f})")
                 self.last_reward_source = f"Starvation ({hunger_ratio:.2f})"
         
         # Shrinking penalty
         if did_shrink:
             reward += self.PENALTY_SHRINK
+            print(f"Shrink penalty: {self.PENALTY_SHRINK}")
             self.last_reward_source = "Shrinking"
 
         # Store the last reward for debugging
         self.last_reward = reward
+        if abs(reward) > 0.1:  # Log non-trivial rewards
+            print(f"Total reward: {reward:.1f} from {self.last_reward_source}")
         
-        # Set expression based on current reward using Z-score normalization
-        self.reward_window.append(reward)
-        if len(self.reward_window) > self.reward_window_size:
-            self.reward_window.pop(0)
+        # Update reward window with only meaningful rewards
+        if abs(reward) > 0.1:  # Only track significant rewards
+            self.reward_window.append(reward)
+            if len(self.reward_window) > self.reward_window_size:
+                self.reward_window.pop(0)
+                
+            # Log window update for significant rewards
+            positive_rewards = [r for r in self.reward_window if r > 0]
+            negative_rewards = [r for r in self.reward_window if r < 0]
+            print(f"Window Update: Added {reward:.1f}")
+            print(f"  Positive rewards: count={len(positive_rewards)}, avg={np.mean(positive_rewards) if positive_rewards else 0:.1f}")
+            print(f"  Negative rewards: count={len(negative_rewards)}, avg={np.mean(negative_rewards) if negative_rewards else 0:.1f}")
         
-        if len(self.reward_window) > 1:  # Need at least 2 samples for std
+        # Log values every 5 seconds
+        current_time = time.time()
+        if not hasattr(self, 'last_log_time'):
+            self.last_log_time = current_time
+        
+        # Calculate emotional state from reward window
+        if self.reward_window:
+            # Get mean of recent meaningful rewards
             mean_reward = np.mean(self.reward_window)
-            std_reward = max(np.std(self.reward_window), self.min_std)
-            z_score = (reward - mean_reward) / std_reward
+            # Get standard deviation, with minimum to prevent division by zero
+            std_reward = max(np.std(self.reward_window), 10.0)
             
-            # Apply uniform amplification to maximize expression range
-            z_score = z_score * 2.5  # Single amplification factor to maximize -1 to 1 range
+            # Calculate normalized score (-1 to 1 range)
+            z_score = mean_reward / std_reward
             
-            # Clip z-score to [-1, 1] directly
+            # Smooth the transition
             new_target = np.clip(z_score, -1, 1)
             
             # Calculate magnitude of change
             change_magnitude = abs(new_target - self.expression)
             
             # For large changes, hold the expression longer
-            if change_magnitude > 0.15:  # Threshold for significant changes
+            if change_magnitude > 0.15:
                 # Hold time increases with magnitude (4 to 6 seconds)
-                self.expression_hold_time = time.time() + (4.0 + change_magnitude * 2.0)
-                # Slower speed for bigger changes (down to 0.3x base speed)
+                hold_duration = 4.0 + change_magnitude * 2.0
+                self.expression_hold_time = time.time() + hold_duration
+                # Slower speed for bigger changes
                 self.current_expression_speed = self.base_expression_speed / (1.0 + change_magnitude * 1.5)
+                
+                # Log significant expression changes
+                print(f"\nExpression Change:")
+                print(f"  From: {self.expression:.3f} To: {new_target:.3f} (Δ={change_magnitude:.3f})")
+                print(f"  Hold time: {hold_duration:.1f}s, Speed: {self.current_expression_speed:.2f}x")
+                print(f"  Cause: mean={mean_reward:.1f}, std={std_reward:.1f}, z_score={z_score:.3f}")
             else:
                 # Reset to default speed for small changes
                 self.current_expression_speed = self.base_expression_speed
                 self.expression_hold_time = 0
             
+            # Log values every 5 seconds
+            if current_time - self.last_log_time >= 5.0:
+                print(f"\nEmotion State Summary:")
+                print(f"  Window size: {len(self.reward_window)} rewards")
+                print(f"  Recent rewards: {[f'{r:.1f}' for r in self.reward_window[-5:]]}")
+                print(f"  Stats: mean={mean_reward:.3f}, std={std_reward:.3f}")
+                print(f"  Expression: current={self.expression:.3f}, target={new_target:.3f} (z_score={z_score:.3f})")
+                if time.time() < self.expression_hold_time:
+                    print(f"  Hold: {self.expression_hold_time - time.time():.1f}s remaining")
+                self.last_log_time = current_time
+            
             self.target_expression = new_target
         else:
-            # Fall back to simple normalization until we have enough samples
-            self.target_expression = np.clip(reward / self.REWARD_FOOD_BASE, -1, 1)
+            # No meaningful rewards yet, stay neutral
+            self.target_expression = 0.0
         
         # Update previous action
         self.prev_action = action
