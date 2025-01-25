@@ -561,20 +561,17 @@ class WormGame:
             std_reward = max(np.std(self.reward_window), self.min_std)
             z_score = (reward - mean_reward) / std_reward
             
-            # Make positive rewards (like food) more impactful on expression
-            if reward > mean_reward:
-                z_score = z_score * 3.5  # Even stronger boost for positive rewards
-            elif reward < mean_reward:
-                z_score = z_score * 2.0  # Stronger boost for negative rewards too
+            # Apply uniform amplification to maximize expression range
+            z_score = z_score * 2.5  # Single amplification factor to maximize -1 to 1 range
             
-            # Clip z-score to [-2, 2] and scale to [-1, 1] with less dampening
-            new_target = np.clip(z_score / 1.2, -1, 1)  # Even less dampening
+            # Clip z-score to [-1, 1] directly
+            new_target = np.clip(z_score, -1, 1)
             
             # Calculate magnitude of change
             change_magnitude = abs(new_target - self.expression)
             
             # For large changes, hold the expression longer
-            if change_magnitude > 0.15:  # Even lower threshold
+            if change_magnitude > 0.15:  # Threshold for significant changes
                 # Hold time increases with magnitude (4 to 6 seconds)
                 self.expression_hold_time = time.time() + (4.0 + change_magnitude * 2.0)
                 # Slower speed for bigger changes (down to 0.3x base speed)
