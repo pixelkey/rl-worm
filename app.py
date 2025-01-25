@@ -829,35 +829,45 @@ class WormGame:
                 current_expression = 0
             
             # Draw mouth (centered and below eyes)
-            mouth_width = self.head_size * 0.7  # Bigger mouth
-            mouth_height = self.head_size * 0.3  # Increased height for more expressive curves
-            mouth_y_offset = self.head_size * 0.4  # Moved mouth down more (from 0.2)
+            mouth_width = self.head_size * 0.6
+            mouth_height = self.head_size * 0.2
+            mouth_y_offset = self.head_size * 0.4  # Added back the y_offset to move mouth down
+            mouth_thickness = max(3, self.head_size // 8)
             
             # Base mouth points (before rotation)
-            base_left_x = -mouth_width/2
-            base_left_y = mouth_y_offset
-            base_right_x = mouth_width/2
-            base_right_y = mouth_y_offset
+            mouth_left_x = -mouth_width/2
+            mouth_right_x = mouth_width/2
+            mouth_y = mouth_height + mouth_y_offset  # Added y_offset to base position
             
-            # Rotate mouth points based on face angle
-            left_x = x + (base_left_x * math.cos(face_angle) - base_left_y * math.sin(face_angle))
-            left_y = y + (base_left_x * math.sin(face_angle) + base_left_y * math.cos(face_angle))
-            right_x = x + (base_right_x * math.cos(face_angle) - base_right_y * math.sin(face_angle))
-            right_y = y + (base_right_x * math.sin(face_angle) + base_right_y * math.cos(face_angle))
+            # Control point for quadratic curve (moves up/down based on expression)
+            control_y = mouth_y + (mouth_height * 2 * current_expression)
             
-            # Calculate control point for curved mouth
-            curve_height = mouth_height * current_expression
-            base_control_x = 0
-            base_control_y = mouth_y_offset + curve_height
+            # Rotate mouth points
+            rotated_left = (
+                x + (mouth_left_x * math.cos(face_angle) - mouth_y * math.sin(face_angle)),
+                y + (mouth_left_x * math.sin(face_angle) + mouth_y * math.cos(face_angle))
+            )
+            rotated_right = (
+                x + (mouth_right_x * math.cos(face_angle) - mouth_y * math.sin(face_angle)),
+                y + (mouth_right_x * math.sin(face_angle) + mouth_y * math.cos(face_angle))
+            )
+            rotated_control = (
+                x + (0 * math.cos(face_angle) - control_y * math.sin(face_angle)),
+                y + (0 * math.sin(face_angle) + control_y * math.cos(face_angle))
+            )
             
-            control_x = x + (base_control_x * math.cos(face_angle) - base_control_y * math.sin(face_angle))
-            control_y = y + (base_control_x * math.sin(face_angle) + base_control_y * math.cos(face_angle))
+            # Draw the quadratic curve for the mouth
+            points = []
+            steps = 10
+            for i in range(steps + 1):
+                t = i / steps
+                # Quadratic Bezier curve
+                px = (1-t)**2 * rotated_left[0] + 2*(1-t)*t * rotated_control[0] + t**2 * rotated_right[0]
+                py = (1-t)**2 * rotated_left[1] + 2*(1-t)*t * rotated_control[1] + t**2 * rotated_right[1]
+                points.append((int(px), int(py)))
             
-            # Draw curved mouth using quadratic Bezier
-            points = [(int(left_x), int(left_y)), 
-                     (int(control_x), int(control_y)),
-                     (int(right_x), int(right_y))]
-            pygame.draw.lines(self.game_surface, self.pupil_color, False, points, 2)
+            if len(points) > 1:
+                pygame.draw.lines(self.game_surface, self.pupil_color, False, points, mouth_thickness)
     
     def _get_state(self):
         """Get the current state for the neural network"""
