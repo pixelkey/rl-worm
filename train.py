@@ -2,21 +2,34 @@ import pygame
 import random
 import math
 import numpy as np
-from models.dqn import WormAgent
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from collections import deque
 from analytics.metrics import WormAnalytics
 import time
 from datetime import datetime, timedelta
 import sys
+import os
+from app import WormGame
+
+# Set up environment variables for display
+os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
+os.environ["__GLX_VENDOR_LIBRARY_NAME"] = "nvidia"
+os.environ["SDL_VIDEODRIVER"] = "x11"
 
 # Initialize pygame (headless mode)
 pygame.init()
-width, height = 800, 600
 
 # Training parameters
 TRAINING_EPISODES = 1000
-STEPS_PER_EPISODE = 2000
+MIN_STEPS = 2000  # Start with 2000 steps
+MAX_STEPS = 5000  # Maximum steps per episode
+STEPS_INCREMENT = 100  # How many steps to add when performance improves
+PERFORMANCE_THRESHOLD = -100  # Reward threshold to increase steps
 SAVE_INTERVAL = 10
-PRINT_INTERVAL = 1  # Update every episode
+PRINT_INTERVAL = 1
 
 class ProgressBar:
     def __init__(self, total, width=50):
@@ -43,6 +56,152 @@ class ProgressBar:
         sys.stdout.write(f'\rProgress: [{bar}] {percentage:.1%} | Episode: {current}/{self.total} | ETA: {eta_str}')
         sys.stdout.flush()
 
+class WormAgent:
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = deque(maxlen=100000)
+        self.batch_size = 512  # Reduced from 4096 for more stable learning
+        self.gamma = 0.99
+        self.epsilon = 1.0
+        self.epsilon_min = 0.01
+        self.epsilon_decay = 0.9995  # Slower decay for better exploration
+        self.learning_rate = 0.0005  # Reduced for more stable learning
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        print(f"Using device: {self.device}")
+        if torch.cuda.is_available():
+            print(f"GPU: {torch.cuda.get_device_name(0)}")
+            print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
+        
+        self.model = self._build_model().to(self.device)
+        self.target_model = self._build_model().to(self.device)
+        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        
+        # Try to load saved model
+        self.load()
+    
+    def _build_model(self):
+        return nn.Sequential(
+            nn.Linear(self.state_size, 512),  
+            nn.ReLU(),
+            nn.Dropout(0.1),  
+            nn.Linear(512, 512),  
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(512, 256),  
+            nn.ReLU(),
+            nn.Linear(256, self.action_size)
+        )
+    
+    def remember(self, state, action, reward, next_state, done):
+        # Ensure states are numpy arrays with correct dtype
+        if not isinstance(state, np.ndarray):
+            state = np.array(state, dtype=np.float32)
+        if not isinstance(next_state, np.ndarray):
+            next_state = np.array(next_state, dtype=np.float32)
+        self.memory.append((state, action, reward, next_state, done))
+    
+    def act(self, state):
+        if random.random() <= self.epsilon:
+            return random.randrange(self.action_size)
+        
+        with torch.no_grad():
+            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+            act_values = self.model(state)
+            return torch.argmax(act_values).item()
+    
+    def train(self):
+        if len(self.memory) < self.batch_size:
+            return
+        
+        minibatch = random.sample(self.memory, self.batch_size)
+        
+        # Pre-allocate and fill arrays
+        states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+        next_states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+        actions_array = np.zeros(self.batch_size, dtype=np.int64)
+        rewards_array = np.zeros(self.batch_size, dtype=np.float32)
+        dones_array = np.zeros(self.batch_size, dtype=np.float32)
+        
+        # Fill arrays efficiently
+        for i, (state, action, reward, next_state, done) in enumerate(minibatch):
+            states_array[i] = state
+            next_states_array[i] = next_state
+            actions_array[i] = action
+            rewards_array[i] = reward
+            dones_array[i] = done
+        
+        # Convert all arrays to tensors at once
+        states = torch.from_numpy(states_array).to(self.device)
+        next_states = torch.from_numpy(next_states_array).to(self.device)
+        actions = torch.from_numpy(actions_array).to(self.device)
+        rewards = torch.from_numpy(rewards_array).to(self.device)
+        dones = torch.from_numpy(dones_array).to(self.device)
+        
+        # Forward passes
+        current_q = self.model(states).gather(1, actions.unsqueeze(1))
+        with torch.no_grad():
+            next_q = self.target_model(next_states).max(1)[0]
+            target_q = rewards + (1 - dones) * self.gamma * next_q
+        
+        # Loss and backward pass
+        loss = nn.MSELoss()(current_q.squeeze(), target_q)
+        
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        self.optimizer.step()
+        
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        
+        return loss.item()
+    
+    def update_target_model(self):
+        self.target_model.load_state_dict(self.model.state_dict())
+    
+    def save(self, episode):
+        # Save only the model weights to prevent pickle security issues
+        model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, 'worm_model.pth')
+        
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'state_size': self.state_size
+        }, model_path)
+        print(f"Saved model state at episode {episode} to {model_path}")
+        
+    def load(self):
+        try:
+            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
+            model_path = os.path.join(model_dir, 'worm_model.pth')
+            print(f"Attempting to load model from {model_path}")
+            
+            if not os.path.exists(model_path):
+                print(f"Model file does not exist at {model_path}")
+                print("No saved model found, starting fresh")
+                return
+                
+            checkpoint = torch.load(model_path, map_location=self.device)
+            if checkpoint['state_size'] == self.state_size:
+                self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+                self.epsilon = checkpoint['epsilon']
+                print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
+            else:
+                print(f"Model has wrong state size: expected {self.state_size}, got {checkpoint['state_size']}")
+                print("Starting fresh with new model")
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            print("No saved model found, starting fresh")
+            
+        # Always sync target model with main model after loading
+        self.target_model.load_state_dict(self.model.state_dict())
+    
 def fast_training():
     print("\nStarting fast training mode...")
     print("Press Ctrl+C at any time to stop training and save progress\n")
@@ -50,199 +209,124 @@ def fast_training():
     progress = ProgressBar(TRAINING_EPISODES)
     start_time = time.time()
     
-    best_reward = float('-inf')
-    episode_rewards = []
-    recent_rewards = []  # Keep track of last 50 episodes
-    
     # Initialize agent and analytics
-    STATE_SIZE = 8
+    STATE_SIZE = 14
     ACTION_SIZE = 9
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
-    # Track visited areas for global exploration bonus
-    global_visited = set()
+    steps_per_episode = MIN_STEPS
+    last_time = time.time()
     
-    # Training metrics for analytics
-    training_metrics = {
-        'episode': [],
-        'avg_reward': [],
-        'wall_collisions': [],
-        'exploration_ratio': [],
-        'smoothness': [],
-        'epsilon': []
-    }
-    
-    for episode in range(TRAINING_EPISODES):
-        # Reset environment
-        worm_positions = [(width // 2, height // 2)] * 15
-        velocity = [random.uniform(-2, 2), random.uniform(-2, 2)]
-        positions_history = []
-        episode_reward = 0
-        wall_collisions = 0
-        smoothness_values = []
-        
-        # Track visited areas for this episode
-        episode_visited = set()
-        
-        for step in range(STEPS_PER_EPISODE):
-            # Get current state
-            state = agent.get_state(worm_positions, velocity, (width, height))
+    try:
+        for episode in range(TRAINING_EPISODES):
+            # Initialize game state
+            game = WormGame(headless=True)
+            state = game.reset()
+            total_reward = 0
+            plants_eaten = 0
+            steps_survived = 0
+            episode_positions = set()
+            wall_collisions = 0
             
-            # Get action from agent
-            action = agent.act(state)
+            # Track performance
+            training_time = 0
+            game_time = 0
             
-            # Update physics (simplified for fast training)
-            movement = agent.get_action_movement(action)
-            velocity = movement
-            head_x, head_y = worm_positions[-1]
-            new_x = head_x + velocity[0]
-            new_y = head_y + velocity[1]
-            
-            # Boundary check
-            wall_collision = False
-            if new_x < 0:
-                new_x = 0
-                wall_collision = True
-            elif new_x > width:
-                new_x = width
-                wall_collision = True
-            if new_y < 0:
-                new_y = 0
-                wall_collision = True
-            elif new_y > height:
-                new_y = height
-                wall_collision = True
+            for step in range(steps_per_episode):
+                step_start = time.time()
                 
-            if wall_collision:
-                wall_collisions += 1
+                # Get action and update game
+                action = agent.act(state)
+                next_state, reward, done, info = game.step(action)
+                
+                # Track metrics
+                if info['ate_plant']:
+                    plants_eaten += 1
+                if info['wall_collision']:
+                    wall_collisions += 1
+                
+                # Track visited positions
+                head_pos = game.positions[0]
+                grid_size = game.game_width / 20
+                grid_pos = (int(head_pos[0]/grid_size), int(head_pos[1]/grid_size))
+                episode_positions.add(grid_pos)
+                
+                # Store experience and train
+                agent.remember(state, action, reward, next_state, done)
+                
+                train_start = time.time()
+                if len(agent.memory) >= agent.batch_size and step % 4 == 0:
+                    loss = agent.train()
+                training_time += time.time() - train_start
+                
+                # Update state and metrics
+                state = next_state
+                total_reward += reward
+                steps_survived += 1
+                
+                # Update target network periodically
+                if step % 1000 == 0:
+                    agent.update_target_model()
+                
+                # Break if done
+                if done:
+                    break
             
-            new_position = (new_x, new_y)
-            worm_positions.append(new_position)
-            positions_history.append(new_position)
+            # Calculate metrics
+            exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
             
-            if len(worm_positions) > 15:
-                worm_positions.pop(0)
-            
-            # Calculate reward components
-            wall_penalty = -2.0 if wall_collision else 0.0
-            
-            # Movement smoothness reward
-            if len(worm_positions) > 1:
-                prev_pos = worm_positions[-2]
-                movement_vector = [new_x - prev_pos[0], new_y - prev_pos[1]]
-                current_smoothness = math.exp(-abs(math.atan2(movement_vector[1], movement_vector[0])))
-                smoothness_values.append(current_smoothness)
-            else:
-                current_smoothness = 0
-            
-            # Enhanced exploration rewards
-            grid_cell = (int(new_x//50), int(new_y//50))
-            episode_visited.add(grid_cell)
-            if grid_cell not in global_visited:
-                global_visited.add(grid_cell)
-                exploration_bonus = 0.5  # Bigger bonus for discovering new areas
-            else:
-                exploration_bonus = 0.1 if grid_cell not in episode_visited else 0.0
-            
-            # Distance from center is now a quadratic penalty to strongly discourage corners
-            center_x, center_y = width/2, height/2
-            distance_from_center = math.sqrt((new_x - center_x)**2 + (new_y - center_y)**2)
-            max_distance = math.sqrt((width/2)**2 + (height/2)**2)
-            corner_penalty = -0.3 * (distance_from_center / max_distance)**2  # Quadratic penalty
-            
-            # Add stagnation penalty
-            if len(positions_history) > 50:  # Check last 50 positions
-                recent_positions = positions_history[-50:]
-                unique_cells = len(set((int(p[0]//30), int(p[1]//30)) for p in recent_positions))
-                stagnation_penalty = -0.2 * (1 - unique_cells/50)  # Penalize staying in same area
-            else:
-                stagnation_penalty = 0
-            
-            # Calculate final reward with new penalties
-            reward = (wall_penalty * 1.5 +  # Increased wall penalty
-                     current_smoothness * 1.0 +
-                     exploration_bonus * 2.0 +  # Increased exploration bonus
-                     corner_penalty +
-                     stagnation_penalty)
-            
-            episode_reward += reward
-            
-            # Get next state
-            next_state = agent.get_state(worm_positions, velocity, (width, height))
-            
-            # Store experience and train
-            agent.memory.push(state, action, reward, next_state, False)
-            loss = agent.train()
-        
-        # Calculate episode metrics
-        episode_rewards.append(episode_reward)
-        recent_rewards.append(episode_reward)
-        if len(recent_rewards) > 50:
-            recent_rewards.pop(0)
-            
-        # Update analytics metrics
-        avg_reward = np.mean(recent_rewards)
-        exploration_ratio = len(episode_visited) / ((width // 50) * (height // 50))  # Normalized by total possible cells
-        avg_smoothness = np.mean(smoothness_values) if smoothness_values else 0
-        
-        training_metrics['episode'].append(episode)
-        training_metrics['avg_reward'].append(avg_reward)
-        training_metrics['wall_collisions'].append(wall_collisions)
-        training_metrics['exploration_ratio'].append(exploration_ratio)
-        training_metrics['smoothness'].append(avg_smoothness)
-        training_metrics['epsilon'].append(agent.epsilon)
-        
-        # Update analytics with current metrics
-        analytics.update_metrics(
-            episode=episode,
-            metrics={
-                'avg_reward': avg_reward,
+            # Update analytics
+            metrics = {
+                'avg_reward': total_reward,
                 'wall_collisions': wall_collisions,
                 'exploration_ratio': exploration_ratio,
-                'movement_smoothness': avg_smoothness,
+                'movement_smoothness': steps_survived / steps_per_episode,
                 'epsilon': agent.epsilon
             }
-        )
+            
+            analytics.update_metrics(episode, metrics)
+            
+            # Save model periodically
+            if episode % SAVE_INTERVAL == 0:
+                agent.save(episode)
+            
+            # Update progress bar
+            progress.update(episode + 1)
+            
+            # Print metrics periodically
+            if episode % PRINT_INTERVAL == 0:
+                current_time = time.time()
+                episode_time = current_time - last_time
+                print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
+                print(f"Steps: {steps_survived}/{steps_per_episode}")
+                print(f"Reward: {total_reward:.2f}")
+                print(f"Plants: {plants_eaten}")
+                print(f"Explore: {exploration_ratio:.2f}")
+                print(f"Epsilon: {agent.epsilon:.3f}")
+                print(f"Episode Time: {episode_time:.2f}s")
+                print(f"Game Time: {game_time:.2f}s")
+                print(f"Training Time: {training_time:.2f}s")
+                last_time = current_time
+            
+            # Increase steps if performance improves
+            if total_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS:
+                steps_per_episode += STEPS_INCREMENT
+                print(f"Steps increased to {steps_per_episode}")
+                
+    except KeyboardInterrupt:
+        print("\nTraining interrupted! Saving progress...")
+        agent.save(episode)
+        analytics.generate_report(episode)
         
-        # Save best model
-        if episode_reward > best_reward:
-            best_reward = episode_reward
-            agent.save_state(episode, is_best=True)
-            print(f"\n New best model saved! Reward: {episode_reward:.2f}")
-        
-        # Regular save interval
-        if episode % SAVE_INTERVAL == 0:
-            agent.save_state(episode)
-        
-        # Update progress and metrics every episode
-        avg_recent_reward = np.mean(recent_rewards)
-        progress.update(episode + 1)
-        
-        if episode % PRINT_INTERVAL == 0:
-            sys.stdout.write(f' | Avg Reward: {avg_recent_reward:.2f} | Epsilon: {agent.epsilon:.3f}')
-            sys.stdout.flush()
-        
-        # Generate analytics report periodically
-        if episode % 50 == 0 and episode > 0:
-            report_path = analytics.generate_report(episode)
-            print(f"\nGenerated report: {report_path}")
-
-    # Final statistics
-    elapsed_time = time.time() - start_time
-    print(f"\n\nTraining completed!")
-    print(f"Total time: {timedelta(seconds=int(elapsed_time))}")
-    print(f"Final average reward (last 50 episodes): {np.mean(recent_rewards):.2f}")
-    print(f"Best reward achieved: {best_reward:.2f}")
-    print(f"Final epsilon value: {agent.epsilon:.3f}")
-    print("\nBest model saved as: models/saved/worm_state_best.pt")
-    print("Run 'python app.py --demo' to see the trained worm in action!")
+    print("\nTraining finished!")
+    agent.save(TRAINING_EPISODES)
+    analytics.generate_report(TRAINING_EPISODES)
 
 if __name__ == "__main__":
     try:
         fast_training()
     except KeyboardInterrupt:
-        print("\n\nTraining interrupted by user. Progress has been saved.")
-        print("You can still run 'python app.py --demo' to see the current best model!")
-    finally:
-        pygame.quit()
+        print("\nTraining interrupted by user. Saving progress...")
+        analytics.generate_report(episode)
+        print("Progress saved. Exiting...")
