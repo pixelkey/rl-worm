@@ -3,85 +3,20 @@ import random
 import math
 import numpy as np
 import torch
-import time
 import os
+import time
+import argparse
 from collections import deque
+from plant import Plant  # Import the Plant class
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import argparse
-import argparse
-import time
-from datetime import datetime, timedelta
-import sys
 from analytics.metrics import WormAnalytics
-import os
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
 parser.add_argument('--demo', action='store_true', help='Run in demo mode using the best trained model')
 args = parser.parse_args()
-
-class Plant:
-    def __init__(self, x, y, game_size):
-        self.x = x
-        self.y = y
-        self.size = int(game_size/40)  # Plant size scales with game
-        self.max_lifetime = 500  # How long the plant lives
-        self.lifetime = self.max_lifetime
-        self.state = 'growing'  # growing, mature, wilting
-        self.color = (0, 180, 0)  # Start with bright green
-        
-    def update(self):
-        """Update plant state based on lifetime"""
-        self.lifetime -= 1
-        life_ratio = self.lifetime / self.max_lifetime
-        
-        # Update state and color based on lifetime
-        if life_ratio > 0.7:  # First 30% of life
-            self.state = 'growing'
-            green = int(180 * (life_ratio - 0.7) / 0.3)  # Fade in from black
-            self.color = (0, green, 0)
-        elif life_ratio > 0.3:  # Middle 40% of life
-            self.state = 'mature'
-            self.color = (0, 180, 0)  # Bright green
-        else:  # Last 30% of life
-            self.state = 'wilting'
-            green = int(180 * life_ratio / 0.3)  # Fade to brown
-            self.color = (100, green, 0)
-            
-        return self.lifetime > 0
-        
-    def draw(self, surface):
-        """Draw the plant"""
-        # Draw stem
-        stem_height = self.size * 2
-        stem_width = max(2, self.size // 4)
-        stem_rect = pygame.Rect(self.x - stem_width//2, 
-                              self.y - stem_height//2,
-                              stem_width, stem_height)
-        pygame.draw.rect(surface, self.color, stem_rect)
-        
-        # Draw leaves
-        leaf_size = self.size
-        leaf_points = [
-            # Left leaf
-            [(self.x - leaf_size, self.y),
-             (self.x, self.y - leaf_size//2),
-             (self.x, self.y + leaf_size//2)],
-            # Right leaf
-            [(self.x + leaf_size, self.y),
-             (self.x, self.y - leaf_size//2),
-             (self.x, self.y + leaf_size//2)]
-        ]
-        
-        for points in leaf_points:
-            pygame.draw.polygon(surface, self.color, points)
-            # Draw leaf veins
-            pygame.draw.line(surface, (0, min(255, self.color[1] + 30), 0),
-                           points[1], points[0], max(1, stem_width//2))
-            pygame.draw.line(surface, (0, min(255, self.color[1] + 30), 0),
-                           points[2], points[0], max(1, stem_width//2))
 
 class WormGame:
     def __init__(self, headless=False):
@@ -166,9 +101,9 @@ class WormGame:
         
         # Plant mechanics
         self.plants = []
-        self.base_plant_spawn_chance = 0.02
+        self.base_plant_spawn_chance = 0.01  # Reduced from 0.02
         self.current_plant_spawn_chance = self.base_plant_spawn_chance
-        self.base_max_plants = 5
+        self.base_max_plants = 3  # Reduced from 5
         self.current_max_plants = self.base_max_plants
         
         # Colors
@@ -327,9 +262,9 @@ class WormGame:
         
         # Check each plant
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
-            plant_rect = pygame.Rect(plant.x - plant.size/2, 
-                                   plant.y - plant.size/2,
-                                   plant.size, plant.size)
+            plant_rect = pygame.Rect(plant.x - plant.base_size/2, 
+                                   plant.y - plant.base_size/2,
+                                   plant.base_size, plant.base_size)
             
             # First check if any body segment overlaps with plant
             body_collision = False
@@ -348,8 +283,8 @@ class WormGame:
                 # Find new position for plant
                 attempts = 0
                 while attempts < 10:  # Try 10 times to find new position
-                    new_x = random.randint(plant.size, self.width - plant.size)
-                    new_y = random.randint(plant.size, self.height - plant.size)
+                    new_x = random.randint(plant.base_size, self.width - plant.base_size)
+                    new_y = random.randint(plant.base_size, self.height - plant.base_size)
                     
                     # Check if new position is clear of worm
                     clear_position = True
