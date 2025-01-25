@@ -262,49 +262,8 @@ class WormGame:
         
         # Check each plant
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
-            plant_rect = pygame.Rect(plant.x - plant.base_size/2, 
-                                   plant.y - plant.base_size/2,
-                                   plant.base_size, plant.base_size)
+            plant_rect = plant.get_bounding_box()
             
-            # First check if any body segment overlaps with plant
-            body_collision = False
-            for i in range(1, len(self.positions)):  # Skip head (index 0)
-                body_x, body_y = self.positions[i]
-                body_rect = pygame.Rect(body_x - self.segment_width/2,
-                                      body_y - self.segment_width/2,
-                                      self.segment_width,
-                                      self.segment_width)
-                if body_rect.colliderect(plant_rect):
-                    body_collision = True
-                    break
-            
-            # If body collides with plant, move the plant
-            if body_collision:
-                # Find new position for plant
-                attempts = 0
-                while attempts < 10:  # Try 10 times to find new position
-                    new_x = random.randint(plant.base_size, self.width - plant.base_size)
-                    new_y = random.randint(plant.base_size, self.height - plant.base_size)
-                    
-                    # Check if new position is clear of worm
-                    clear_position = True
-                    for pos_x, pos_y in self.positions:
-                        dist = math.sqrt((new_x - pos_x)**2 + (new_y - pos_y)**2)
-                        if dist < self.head_size * 2:  # Give some extra space
-                            clear_position = False
-                            break
-                    
-                    if clear_position:
-                        plant.x = new_x
-                        plant.y = new_y
-                        break
-                    attempts += 1
-                
-                if attempts == 10:  # If can't find clear spot, remove plant
-                    self.plants.remove(plant)
-                continue
-            
-            # Only head can eat plants
             if head_rect.colliderect(plant_rect):
                 self.plants.remove(plant)
                 old_hunger = self.hunger

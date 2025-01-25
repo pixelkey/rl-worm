@@ -129,7 +129,116 @@ PLANT_TYPES = {
         'growth_speed': 0.7,
         'branch_density': (0.9, 1.0),
         'mature_height_multiplier': 0.5
-    })
+    }),
+    'lotus': PlantType('lotus', {
+        'base_color': (50, 160, 50),
+        'leaf_color': (40, 140, 40),
+        'stem_color': (70, 130, 70),
+        'flower_colors': [(255, 192, 203), (255, 182, 193), (255, 172, 183)],  # Pink variations
+        'flower_type': 'lotus',
+        'max_branch_depth': 2,
+        'leaf_type': 'round',
+        'stem_type': 'curved',
+        'growth_speed': 0.9,
+        'branch_density': (0.3, 0.5),
+        'mature_height_multiplier': 0.8,
+        'has_flowers': True,
+        'flower_probability': 0.6,
+        'petal_count': 12
+    }),
+    'orchid': PlantType('orchid', {
+        'base_color': (60, 150, 60),
+        'leaf_color': (40, 130, 40),
+        'stem_color': (80, 120, 80),
+        'flower_colors': [
+            (216, 191, 216),  # Light purple
+            (238, 130, 238),  # Violet
+            (255, 240, 245),  # White-pink
+            (255, 182, 193)   # Light pink
+        ],
+        'flower_type': 'orchid',
+        'max_branch_depth': 3,
+        'leaf_type': 'pointed',
+        'stem_type': 'curved',
+        'growth_speed': 0.8,
+        'branch_density': (0.4, 0.6),
+        'mature_height_multiplier': 1.1,
+        'has_flowers': True,
+        'flower_probability': 0.4,
+        'petal_count': 5
+    }),
+    'cherry_blossom': PlantType('cherry_blossom', {
+        'base_color': (90, 120, 90),
+        'leaf_color': (60, 150, 60),
+        'stem_color': (139, 69, 19),  # Saddle brown
+        'flower_colors': [
+            (255, 223, 223),  # Very light pink
+            (255, 218, 218),
+            (255, 192, 203)   # Pink
+        ],
+        'flower_type': 'cherry_blossom',
+        'max_branch_depth': 4,
+        'leaf_type': 'pointed',
+        'stem_type': 'branching',
+        'growth_speed': 1.0,
+        'branch_density': (0.7, 0.9),
+        'mature_height_multiplier': 1.4,
+        'has_flowers': True,
+        'flower_probability': 0.7,
+        'petal_count': 5
+    }),
+    'tropical': PlantType('tropical', {
+        'base_color': (34, 139, 34),  # Forest green
+        'leaf_color': (50, 205, 50),  # Lime green
+        'stem_color': (85, 107, 47),  # Dark olive green
+        'flower_colors': [
+            (255, 140, 0),   # Dark orange
+            (255, 165, 0),   # Orange
+            (255, 69, 0)     # Red-orange
+        ],
+        'flower_type': 'bird_of_paradise',
+        'max_branch_depth': 3,
+        'leaf_type': 'tropical',
+        'stem_type': 'thick',
+        'growth_speed': 1.2,
+        'branch_density': (0.5, 0.7),
+        'mature_height_multiplier': 1.6,
+        'has_flowers': True,
+        'flower_probability': 0.3,
+        'petal_count': 6
+    }),
+    'cactus': PlantType('cactus', {
+        'base_color': (50, 205, 50),  # Lime green
+        'leaf_color': (34, 139, 34),  # Forest green
+        'stem_color': (0, 100, 0),    # Dark green
+        'flower_colors': [
+            (255, 192, 203),  # Pink
+            (255, 0, 0),      # Red
+            (255, 255, 0)     # Yellow
+        ],
+        'flower_type': 'cactus_flower',
+        'max_branch_depth': 2,
+        'leaf_type': 'spike',
+        'stem_type': 'thick',
+        'growth_speed': 0.5,
+        'branch_density': (0.2, 0.4),
+        'mature_height_multiplier': 0.9,
+        'has_flowers': True,
+        'flower_probability': 0.2,
+        'petal_count': 12
+    }),
+    'bamboo': PlantType('bamboo', {
+        'base_color': (50, 205, 50),  # Lime green
+        'leaf_color': (144, 238, 144),  # Light green
+        'stem_color': (85, 107, 47),    # Dark olive green
+        'max_branch_depth': 5,
+        'leaf_type': 'bamboo',
+        'stem_type': 'segmented',
+        'growth_speed': 1.5,
+        'branch_density': (0.3, 0.5),
+        'mature_height_multiplier': 2.0,
+        'has_flowers': False
+    }),
 }
 
 class Plant:
@@ -191,6 +300,11 @@ class Plant:
         self.generate_patterns(self.max_branch_depth)
         
         self.branch_growth = [0.0] * (self.max_branch_depth + 1)  # List of growth stages for each branch level
+        
+        # Store consistent colors for this plant instance
+        self.instance_flower_color = random.choice(self.plant_type.flower_colors) if self.plant_type.flower_colors else None
+        self.instance_leaf_color = self.plant_type.leaf_color or self.plant_type.base_color
+        self.instance_stem_color = self.plant_type.stem_color or self.plant_type.base_color
 
     def generate_patterns(self, max_depth, parent_angle=90, depth=0):
         """Pre-generate all random patterns for this plant"""
@@ -296,6 +410,23 @@ class Plant:
             
         return self.lifetime > 0
 
+    def get_bounding_box(self):
+        """Get the bounding box for collision detection"""
+        # Calculate the maximum extent of the plant based on its growth stage
+        max_height = self.base_size * self.plant_type.mature_height_multiplier
+        current_height = max_height * self.growth_stage
+        
+        # Make the bounding box wide enough to encompass branches and flowers
+        width = current_height * 0.8  # Plants generally spread about 80% of their height
+        
+        # Return the bounding rectangle
+        return pygame.Rect(
+            self.x - width/2,  # Left
+            self.y - current_height/2,  # Top
+            width,  # Width
+            current_height  # Height
+        )
+
     def draw_fractal_branch(self, surface, start, angle, length, width, depth=0, max_depth=2):
         """Recursively draw a fractal branch with leaves"""
         if depth > max_depth or length < 2:
@@ -340,7 +471,7 @@ class Plant:
                 points.append((x, y))
             
             if len(points) >= 2:
-                pygame.draw.lines(surface, self.stem_color, False, points, width)
+                pygame.draw.lines(surface, self.instance_stem_color, False, points, width)
         else:  # Sub-branches
             # Use stored control point offset
             ctrl_offset = current_pattern['ctrl_offset']
@@ -357,7 +488,7 @@ class Plant:
                 points.append((x, y))
             
             if len(points) >= 2:
-                pygame.draw.lines(surface, self.stem_color, False, points, max(1, int(width * growth_progress)))
+                pygame.draw.lines(surface, self.instance_stem_color, False, points, max(1, int(width * growth_progress)))
         
         # Draw leaves using stored pattern, only if branch is grown enough
         if current_pattern['has_leaf'] and self.state not in ['seed', 'sprouting'] and growth_progress > 0.5:
@@ -395,7 +526,7 @@ class Plant:
         if size < 2 or not self.plant_type.has_flowers:
             return
             
-        flower_color = random.choice(self.plant_type.flower_colors)
+        flower_color = self.instance_flower_color
         petal_size = size * 0.8
         num_petals = self.plant_type.petal_count
         
@@ -506,6 +637,156 @@ class Plant:
                     (right_x, right_y)
                 ])
 
+        elif self.plant_type.flower_type == 'lotus':
+            # Lotus flower with layered petals
+            center_size = size * 0.3
+            pygame.draw.circle(surface, (255, 223, 0), (int(pos[0]), int(pos[1])), int(center_size))
+            
+            # Draw multiple layers of petals
+            for layer in range(3):
+                layer_petals = num_petals - layer * 2
+                layer_size = petal_size * (1.0 - layer * 0.2)
+                
+                for i in range(layer_petals):
+                    petal_angle = angle + (i * (360 / layer_petals)) + layer * 15
+                    # Create curved petals
+                    points = []
+                    for t in range(8):
+                        t = t / 7
+                        radius = layer_size * (0.4 + t * 0.6)
+                        curve = math.sin(t * math.pi) * size * 0.25
+                        petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                        petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                        petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                        petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                        points.append((petal_x, petal_y))
+                    
+                    if len(points) >= 3:
+                        pygame.draw.polygon(surface, flower_color, points)
+
+        elif self.plant_type.flower_type == 'orchid':
+            # Orchid with unique petal arrangement
+            center_size = size * 0.15
+            pygame.draw.circle(surface, (255, 255, 0), (int(pos[0]), int(pos[1])), int(center_size))
+            
+            # Draw main petal (labellum)
+            main_petal_points = []
+            main_size = petal_size * 1.2
+            for t in range(10):
+                t = t / 9
+                radius = main_size * (0.3 + t * 0.7)
+                curve = math.sin(t * math.pi) * size * 0.4
+                petal_x = pos[0] + math.cos(math.radians(angle)) * radius
+                petal_y = pos[1] - math.sin(math.radians(angle)) * radius
+                petal_x += math.cos(math.radians(angle + 90)) * curve
+                petal_y -= math.sin(math.radians(angle + 90)) * curve
+                main_petal_points.append((petal_x, petal_y))
+            
+            if len(main_petal_points) >= 3:
+                pygame.draw.polygon(surface, flower_color, main_petal_points)
+            
+            # Draw side petals
+            for i in range(4):
+                petal_angle = angle + (i * 72) + 36
+                points = []
+                for t in range(8):
+                    t = t / 7
+                    radius = petal_size * (0.3 + t * 0.7)
+                    curve = math.sin(t * math.pi) * size * 0.2
+                    petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                    petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                    petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                    petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                    points.append((petal_x, petal_y))
+                
+                if len(points) >= 3:
+                    pygame.draw.polygon(surface, flower_color, points)
+
+        elif self.plant_type.flower_type == 'cherry_blossom':
+            # Cherry blossom with delicate petals
+            center_size = size * 0.2
+            pygame.draw.circle(surface, (255, 223, 0), (int(pos[0]), int(pos[1])), int(center_size))
+            
+            for i in range(num_petals):
+                petal_angle = angle + (i * (360 / num_petals))
+                points = []
+                
+                # Create heart-shaped petals
+                for t in range(12):
+                    t = t / 11
+                    radius = petal_size * (0.3 + t * 0.7)
+                    # Add a slight dip in the middle of each petal
+                    radius *= (1 - math.sin(t * math.pi) * 0.1)
+                    curve = math.sin(t * math.pi) * size * 0.2
+                    petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                    petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                    petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                    petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                    points.append((petal_x, petal_y))
+                
+                if len(points) >= 3:
+                    pygame.draw.polygon(surface, flower_color, points)
+
+        elif self.plant_type.flower_type == 'bird_of_paradise':
+            # Bird of Paradise flower
+            center_size = size * 0.2
+            stem_length = size * 0.8
+            
+            # Draw the protective bract
+            bract_points = [
+                (pos[0], pos[1]),
+                (pos[0] + math.cos(math.radians(angle + 20)) * stem_length,
+                 pos[1] - math.sin(math.radians(angle + 20)) * stem_length),
+                (pos[0] + math.cos(math.radians(angle)) * (stem_length * 1.2),
+                 pos[1] - math.sin(math.radians(angle)) * (stem_length * 1.2)),
+                (pos[0] + math.cos(math.radians(angle - 20)) * stem_length,
+                 pos[1] - math.sin(math.radians(angle - 20)) * stem_length),
+            ]
+            pygame.draw.polygon(surface, (139, 69, 19), bract_points)
+            
+            # Draw the colorful flower parts
+            for i in range(5):
+                petal_angle = angle + (i * 15) - 30
+                petal_length = size * (0.6 + i * 0.1)
+                petal_points = [
+                    (pos[0] + math.cos(math.radians(angle)) * size * 0.3,
+                     pos[1] - math.sin(math.radians(angle)) * size * 0.3),
+                    (pos[0] + math.cos(math.radians(petal_angle)) * petal_length,
+                     pos[1] - math.sin(math.radians(petal_angle)) * petal_length),
+                    (pos[0] + math.cos(math.radians(petal_angle + 10)) * (petal_length * 0.9),
+                     pos[1] - math.sin(math.radians(petal_angle + 10)) * (petal_length * 0.9))
+                ]
+                pygame.draw.polygon(surface, flower_color, petal_points)
+
+        elif self.plant_type.flower_type == 'cactus_flower':
+            # Cactus flower with many delicate petals
+            center_size = size * 0.3
+            pygame.draw.circle(surface, (255, 223, 0), (int(pos[0]), int(pos[1])), int(center_size))
+            
+            # Draw multiple layers of thin petals
+            for layer in range(3):
+                layer_petals = num_petals + layer * 4
+                layer_size = petal_size * (0.7 + layer * 0.15)
+                
+                for i in range(layer_petals):
+                    petal_angle = angle + (i * (360 / layer_petals)) + layer * 10
+                    points = []
+                    
+                    # Create thin, pointed petals
+                    for t in range(8):
+                        t = t / 7
+                        radius = layer_size * (0.3 + t * 0.7)
+                        # Make petals thinner
+                        curve = math.sin(t * math.pi) * size * 0.1
+                        petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                        petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                        petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                        petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                        points.append((petal_x, petal_y))
+                    
+                    if len(points) >= 3:
+                        pygame.draw.polygon(surface, flower_color, points)
+
     def draw_fractal_leaf(self, surface, pos, angle, size):
         """Draw a fractal-like leaf with veins"""
         if size < 2:
@@ -559,13 +840,13 @@ class Plant:
             points.append((x, y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.leaf_color, points)
+            pygame.draw.polygon(surface, self.instance_leaf_color, points)
             
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.leaf_color[0] + 20),
-                         min(255, self.leaf_color[1] + 20),
-                         min(255, self.leaf_color[2] + 20))
+            vein_color = (min(255, self.instance_leaf_color[0] + 20),
+                         min(255, self.instance_leaf_color[1] + 20),
+                         min(255, self.instance_leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/8)))
             
     def draw_feather_leaf(self, surface, pos, angle, size):
@@ -573,7 +854,7 @@ class Plant:
         # Main stem
         end_pos = (pos[0] + math.cos(math.radians(angle)) * size,
                   pos[1] - math.sin(math.radians(angle)) * size)
-        pygame.draw.line(surface, self.leaf_color, pos, end_pos, max(1, int(size/10)))
+        pygame.draw.line(surface, self.instance_leaf_color, pos, end_pos, max(1, int(size/10)))
         
         # Draw small leaflets along the stem
         num_pairs = max(3, int(size / 4))
@@ -594,13 +875,13 @@ class Plant:
                  pos[1] - math.sin(math.radians(angle)) * radius)
         
         # Draw filled circle
-        pygame.draw.circle(surface, self.leaf_color, (int(center[0]), int(center[1])), int(radius))
+        pygame.draw.circle(surface, self.instance_leaf_color, (int(center[0]), int(center[1])), int(radius))
         
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.leaf_color[0] + 20),
-                         min(255, self.leaf_color[1] + 20),
-                         min(255, self.leaf_color[2] + 20))
+            vein_color = (min(255, self.instance_leaf_color[0] + 20),
+                         min(255, self.instance_leaf_color[1] + 20),
+                         min(255, self.instance_leaf_color[2] + 20))
             for a in range(0, 360, 45):
                 end_pos = (center[0] + math.cos(math.radians(a)) * radius * 0.8,
                           center[1] - math.sin(math.radians(a)) * radius * 0.8)
@@ -617,13 +898,13 @@ class Plant:
         right = (pos[0] + math.cos(math.radians(angle + 90)) * width,
                  pos[1] - math.sin(math.radians(angle + 90)) * width)
                  
-        pygame.draw.polygon(surface, self.leaf_color, [left, tip, right])
+        pygame.draw.polygon(surface, self.instance_leaf_color, [left, tip, right])
         
         # Draw center vein
         if self.state != 'dying':
-            vein_color = (min(255, self.leaf_color[0] + 20),
-                         min(255, self.leaf_color[1] + 20),
-                         min(255, self.leaf_color[2] + 20))
+            vein_color = (min(255, self.instance_leaf_color[0] + 20),
+                         min(255, self.instance_leaf_color[1] + 20),
+                         min(255, self.instance_leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/10)))
             
     def draw_heart_leaf(self, surface, pos, angle, size):
@@ -653,13 +934,13 @@ class Plant:
             points.append((x, y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.leaf_color, points)
+            pygame.draw.polygon(surface, self.instance_leaf_color, points)
             
         # Draw veins
         if self.state != 'dying':
-            vein_color = (min(255, self.leaf_color[0] + 20),
-                         min(255, self.leaf_color[1] + 20),
-                         min(255, self.leaf_color[2] + 20))
+            vein_color = (min(255, self.instance_leaf_color[0] + 20),
+                         min(255, self.instance_leaf_color[1] + 20),
+                         min(255, self.instance_leaf_color[2] + 20))
             pygame.draw.line(surface, vein_color, pos, tip, max(1, int(size/10)))
             
     def draw_thick_leaf(self, surface, pos, angle, size):
@@ -696,13 +977,13 @@ class Plant:
             points.append((right_x, right_y))
             
         if len(points) >= 3:
-            pygame.draw.polygon(surface, self.leaf_color, points)
+            pygame.draw.polygon(surface, self.instance_leaf_color, points)
             
         # Draw center line for thickness effect
         if self.state != 'dying':
-            highlight_color = (min(255, self.leaf_color[0] + 40),
-                             min(255, self.leaf_color[1] + 40),
-                             min(255, self.leaf_color[2] + 40))
+            highlight_color = (min(255, self.instance_leaf_color[0] + 40),
+                             min(255, self.instance_leaf_color[1] + 40),
+                             min(255, self.instance_leaf_color[2] + 40))
             end_pos = (pos[0] + math.cos(math.radians(angle)) * size,
                       pos[1] - math.sin(math.radians(angle)) * size)
             pygame.draw.line(surface, highlight_color, pos, end_pos, max(1, int(size/6)))
