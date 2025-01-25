@@ -109,7 +109,7 @@ class WormGame:
         # Hunger and growth mechanics
         self.max_hunger = 1000
         self.hunger = self.max_hunger
-        self.base_hunger_rate = 0.1
+        self.base_hunger_rate = 0.2  # Doubled from 0.1
         self.current_hunger_rate = self.base_hunger_rate
         self.hunger_gain_from_plant = 400  # Increased from 300
         self.shrink_hunger_threshold = 0.4  # Start shrinking at 40% hunger instead of 50%
