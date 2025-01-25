@@ -412,17 +412,18 @@ class Plant:
 
     def get_bounding_box(self):
         """Get the bounding box for collision detection"""
-        # Calculate the maximum extent of the plant based on its growth stage
-        max_height = self.base_size * self.plant_type.mature_height_multiplier
+        # Calculate the actual visible height of the plant based on its growth stage
+        max_height = self.stem_height * self.plant_type.mature_height_multiplier
         current_height = max_height * self.growth_stage
         
-        # Make the bounding box wide enough to encompass branches and flowers
-        width = current_height * 0.8  # Plants generally spread about 80% of their height
+        # Calculate width based on the actual spread of branches and leaves
+        spread_factor = 0.6  # Plants typically spread about 60% of their height
+        width = max(self.base_size, current_height * spread_factor)  # At least as wide as base
         
-        # Return the bounding rectangle
+        # Position the box with its bottom center at the plant's base (x, y)
         return pygame.Rect(
-            self.x - width/2,  # Left
-            self.y - current_height/2,  # Top
+            self.x - width/2,  # Left edge
+            self.y - current_height,  # Top edge
             width,  # Width
             current_height  # Height
         )
@@ -567,12 +568,13 @@ class Plant:
                 points = []
                 for t in range(6):
                     t = t / 5
-                    ctrl_x = base_x + (tip_x - base_x) * t
-                    ctrl_y = base_y + (tip_y - base_y) * t
-                    offset = math.sin(t * math.pi) * size * 0.15
-                    ctrl_x += math.cos(math.radians(petal_angle + 90)) * offset
-                    ctrl_y -= math.sin(math.radians(petal_angle + 90)) * offset
-                    points.append((ctrl_x, ctrl_y))
+                    radius = petal_size * (0.3 + t * 0.7)
+                    curve = math.sin(t * math.pi) * size * 0.15
+                    petal_x = pos[0] + math.cos(math.radians(petal_angle)) * radius
+                    petal_y = pos[1] - math.sin(math.radians(petal_angle)) * radius
+                    petal_x += math.cos(math.radians(petal_angle + 90)) * curve
+                    petal_y -= math.sin(math.radians(petal_angle + 90)) * curve
+                    points.append((petal_x, petal_y))
                 
                 if len(points) >= 3:
                     pygame.draw.polygon(surface, flower_color, points)

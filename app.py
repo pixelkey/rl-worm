@@ -99,6 +99,14 @@ class WormGame:
         self.shrink_cooldown = 60  # Frames between shrinks
         self.shrink_timer = 0  # Counter for shrink cooldown
         
+        # Plant management
+        self.min_plants = 2
+        self.max_plants = 8
+        self.target_plants = random.randint(self.min_plants, self.max_plants)
+        self.plant_spawn_chance = 0.02  # 2% chance per frame to spawn a new plant
+        self.plant_spawn_cooldown = 0
+        self.plant_spawn_cooldown_max = 60  # Minimum frames between spawns
+        
         # Plant mechanics
         self.plants = []
         self.base_plant_spawn_chance = 0.01  # Reduced from 0.02
@@ -229,43 +237,75 @@ class WormGame:
         self.reset()
 
     def spawn_plant(self):
-        if len(self.plants) < self.current_max_plants and random.random() < self.current_plant_spawn_chance:
-            margin = self.game_height // 10
-            x = random.randint(margin, self.game_width - margin)
-            y = random.randint(margin, self.game_height - margin)
-            
-            # Check if too close to other plants
-            too_close = False
-            for plant in self.plants:
-                dist = math.sqrt((x - plant.x)**2 + (y - plant.y)**2)
-                if dist < self.game_height // 8:
-                    too_close = True
-                    break
-                    
-            if not too_close:
-                self.plants.append(Plant(x, y, self.game_height))
+        """Try to spawn a new plant if conditions are met"""
+        margin = self.game_height // 10
+        x = random.randint(margin, self.game_width - margin)
+        y = random.randint(margin, self.game_height - margin)
+        
+        # Check if too close to other plants
+        too_close = False
+        for plant in self.plants:
+            dist = math.sqrt((x - plant.x)**2 + (y - plant.y)**2)
+            if dist < self.game_height // 8:
+                too_close = True
+                break
                 
+        if not too_close:
+            self.plants.append(Plant(x, y, self.game_height))
+            return True
+        return False
+
     def update_plants(self):
+        """Update all plants and handle spawning"""
         # Update existing plants
-        self.plants = [plant for plant in self.plants if plant.update()]
+        for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
+            if not plant.update():
+                self.plants.remove(plant)
+                
+        # Occasionally change target number of plants
+        if random.random() < 0.001:  # 0.1% chance per frame
+            self.target_plants = random.randint(self.min_plants, self.max_plants)
         
-        # Try to spawn new plant
-        self.spawn_plant()
+        # Handle plant spawning
+        if self.plant_spawn_cooldown > 0:
+            self.plant_spawn_cooldown -= 1
         
+        # Adjust spawn chance based on current vs target number of plants
+        current_plants = len(self.plants)
+        if current_plants < self.target_plants:
+            # Increase spawn chance when below target
+            effective_spawn_chance = self.plant_spawn_chance * (1 + (self.target_plants - current_plants) * 0.5)
+        else:
+            # Decrease spawn chance when at or above target
+            effective_spawn_chance = self.plant_spawn_chance * 0.5
+        
+        # Try to spawn a new plant
+        if (current_plants < self.max_plants and 
+            self.plant_spawn_cooldown <= 0 and 
+            random.random() < effective_spawn_chance):
+            
+            self.spawn_plant()
+            self.plant_spawn_cooldown = self.plant_spawn_cooldown_max
+
     def check_plant_collision(self):
         """Check for collisions with plants and handle eating"""
         # Only check head collisions for eating
         head_x, head_y = self.positions[0]
-        head_rect = pygame.Rect(head_x - self.head_size/2, 
-                              head_y - self.head_size/2,
-                              self.head_size, self.head_size)
+        
+        # Create a collision box that matches the head's actual size
+        head_rect = pygame.Rect(
+            head_x - self.head_size/2,  # Center the box on the head
+            head_y - self.head_size/2,
+            self.head_size,            # Use actual head size
+            self.head_size
+        )
         
         # Check each plant
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
             plant_rect = plant.get_bounding_box()
             
+            # Calculate reward based on plant size and growth
             if head_rect.colliderect(plant_rect):
-                self.plants.remove(plant)
                 old_hunger = self.hunger
                 self.hunger = min(self.max_hunger, self.hunger + self.hunger_gain_from_plant)
                 
@@ -287,7 +327,10 @@ class WormGame:
                     self.expression = 0.5
                     self.expression_time = time.time()
                 
+                # Remove the plant after eating it
+                self.plants.remove(plant)
                 return True
+                
         return False
         
     def update_hunger(self):
@@ -788,10 +831,15 @@ class WormGame:
         
         # Clear and respawn plants
         self.plants = []
-        for _ in range(self.current_max_plants):
+        self.target_plants = random.randint(self.min_plants, self.max_plants)
+        initial_plants = random.randint(self.min_plants, self.target_plants)
+        
+        # Keep trying to spawn initial plants until we have enough
+        attempts = 0
+        while len(self.plants) < initial_plants and attempts < 100:
             self.spawn_plant()
+            attempts += 1
             
-        # Get initial state
         return self._get_state()
         
     def update_hunger(self):
