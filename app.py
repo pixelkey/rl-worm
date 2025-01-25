@@ -325,8 +325,8 @@ class WormGame:
             nutrition = plant.get_nutritional_value()
             
             if head_rect.colliderect(plant_rect):
-                # Scale hunger gain - divide nutrition by 2 so it takes about 2-3 plants to recover
-                hunger_gain = int(self.hunger_gain_from_plant * (nutrition / 2))
+                # Full hunger gain based on nutrition (no division)
+                hunger_gain = int(self.hunger_gain_from_plant * nutrition)
                 
                 # Apply the gains
                 self.hunger = min(self.max_hunger, self.hunger + hunger_gain)
