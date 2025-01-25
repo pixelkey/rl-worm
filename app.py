@@ -762,12 +762,53 @@ class WormGame:
             pygame.draw.circle(self.game_surface, self.eye_color,
                             (int(right_eye_x), int(right_eye_y)), self.eye_size)
             
-            # Draw pupils (black part)
+            # Adjust pupil position based on expression
+            pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
             pupil_size = self.eye_size // 2
+            
+            # Draw pupils (black part) - shifted based on expression
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(left_eye_x), int(left_eye_y)), pupil_size)
+                            (int(left_eye_x), int(left_eye_y - pupil_y_offset)), pupil_size)
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(right_eye_x), int(right_eye_y)), pupil_size)
+                            (int(right_eye_x), int(right_eye_y - pupil_y_offset)), pupil_size)
+            
+            # Draw eyebrows
+            brow_length = self.eye_size * 1.2
+            brow_thickness = max(2, self.eye_size // 4)
+            brow_y_offset = self.eye_size * 1.5
+            brow_angle = math.pi * 0.15 * self.expression
+            
+            # Base positions for left eyebrow (relative to eye center)
+            base_left_brow_start_x = -brow_length/2
+            base_left_brow_start_y = -brow_y_offset
+            base_left_brow_end_x = brow_length/2
+            base_left_brow_end_y = -brow_y_offset + (brow_length/2 * brow_angle)
+            
+            # Base positions for right eyebrow (relative to eye center)
+            base_right_brow_start_x = -brow_length/2
+            base_right_brow_start_y = -brow_y_offset
+            base_right_brow_end_x = brow_length/2
+            base_right_brow_end_y = -brow_y_offset + (brow_length/2 * -brow_angle)  # Negative angle for right brow
+            
+            # Rotate and position left eyebrow
+            left_brow_start_x = left_eye_x + (base_left_brow_start_x * math.cos(face_angle) - base_left_brow_start_y * math.sin(face_angle))
+            left_brow_start_y = left_eye_y + (base_left_brow_start_x * math.sin(face_angle) + base_left_brow_start_y * math.cos(face_angle))
+            left_brow_end_x = left_eye_x + (base_left_brow_end_x * math.cos(face_angle) - base_left_brow_end_y * math.sin(face_angle))
+            left_brow_end_y = left_eye_y + (base_left_brow_end_x * math.sin(face_angle) + base_left_brow_end_y * math.cos(face_angle))
+            
+            # Rotate and position right eyebrow
+            right_brow_start_x = right_eye_x + (base_right_brow_start_x * math.cos(face_angle) - base_right_brow_start_y * math.sin(face_angle))
+            right_brow_start_y = right_eye_y + (base_right_brow_start_x * math.sin(face_angle) + base_right_brow_start_y * math.cos(face_angle))
+            right_brow_end_x = right_eye_x + (base_right_brow_end_x * math.cos(face_angle) - base_right_brow_end_y * math.sin(face_angle))
+            right_brow_end_y = right_eye_y + (base_right_brow_end_x * math.sin(face_angle) + base_right_brow_end_y * math.cos(face_angle))
+            
+            # Draw the eyebrows
+            pygame.draw.line(self.game_surface, self.pupil_color,
+                           (int(left_brow_start_x), int(left_brow_start_y)),
+                           (int(left_brow_end_x), int(left_brow_end_y)), brow_thickness)
+            pygame.draw.line(self.game_surface, self.pupil_color,
+                           (int(right_brow_start_x), int(right_brow_start_y)),
+                           (int(right_brow_end_x), int(right_brow_end_y)), brow_thickness)
             
             # Update expression timing
             current_time = time.time()
