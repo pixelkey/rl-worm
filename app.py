@@ -321,19 +321,19 @@ class WormGame:
         for plant in self.plants[:]:  # Use slice copy to safely modify during iteration
             plant_rect = plant.get_bounding_box()
             
-            # Get plant's nutritional value
+            # Get plant's nutritional value (0.0 to 1.0)
             nutrition = plant.get_nutritional_value()
             
             if head_rect.colliderect(plant_rect):
-                # Scale hunger gain and score based on nutritional value
+                # Scale hunger gain by nutritional value (0.2 to 1.0 from get_nutritional_value)
+                # A dying plant (0.2) will give 80 hunger, while a mature plant (1.0) gives 400
                 hunger_gain = int(self.hunger_gain_from_plant * nutrition)
-                score_gain = int(10 * nutrition)  # Base score of 10 multiplied by nutrition
                 
                 # Apply the gains
                 self.hunger = min(self.max_hunger, self.hunger + hunger_gain)
                 
-                # Grow when eating if not at max size and plant is nutritious enough
-                if self.num_segments < self.max_segments and nutrition > 0.5:  # Only grow from somewhat nutritious plants
+                # Only grow from healthy plants (nutrition > 0.5)
+                if self.num_segments < self.max_segments and nutrition > 0.5:
                     self.num_segments += 1
                     # Add new segment at the end
                     last_pos = self.positions[-1]
@@ -344,8 +344,6 @@ class WormGame:
                     # Show happy expression for growing
                     self.expression = 1
                     self.expression_time = time.time()
-                
-                # Show neutral expression for just eating
                 else:
                     # Expression based on nutritional value
                     self.expression = min(1.0, nutrition)  # Better nutrition = happier expression
