@@ -228,6 +228,12 @@ def fast_training():
             steps_survived = 0
             episode_positions = set()
             wall_collisions = 0
+            wall_stays = 0
+            direction_changes = 0
+            sharp_turns = 0
+            smooth_movements = 0
+            starvation_count = 0
+            shrink_count = 0
             
             # Track performance
             training_time = 0
@@ -245,6 +251,20 @@ def fast_training():
                     plants_eaten += 1
                 if info['wall_collision']:
                     wall_collisions += 1
+                    if 'Wall Stay' in game.last_reward_source:
+                        wall_stays += 1
+                
+                # Track other rewards/penalties
+                if game.last_reward_source.startswith('Direction Change'):
+                    direction_changes += 1
+                elif game.last_reward_source.startswith('Sharp Turn'):
+                    sharp_turns += 1
+                elif game.last_reward_source.startswith('Smooth Movement'):
+                    smooth_movements += 1
+                elif game.last_reward_source.startswith('Starvation'):
+                    starvation_count += 1
+                elif game.last_reward_source.startswith('Shrinking'):
+                    shrink_count += 1
                 
                 # Track visited positions
                 head_pos = game.positions[0]
@@ -302,6 +322,9 @@ def fast_training():
                 print(f"Steps: {steps_survived}/{steps_per_episode}")
                 print(f"Reward: {total_reward:.2f}")
                 print(f"Plants: {plants_eaten}")
+                print(f"Wall Hits: {wall_collisions} (Stays: {wall_stays})")
+                print(f"Movement: {smooth_movements} (Sharp: {sharp_turns}, Dir: {direction_changes})")
+                print(f"Health: {shrink_count} shrinks, {starvation_count} starves")
                 print(f"Explore: {exploration_ratio:.2f}")
                 print(f"Epsilon: {agent.epsilon:.3f}")
                 print(f"Episode Time: {episode_time:.2f}s")
@@ -327,6 +350,9 @@ if __name__ == "__main__":
     try:
         fast_training()
     except KeyboardInterrupt:
+        print("\nTraining interrupted by user. Saving progress...")
+        analytics.generate_report(episode)
+        print("Progress saved. Exiting...")
         print("\nTraining interrupted by user. Saving progress...")
         analytics.generate_report(episode)
         print("Progress saved. Exiting...")
