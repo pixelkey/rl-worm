@@ -234,6 +234,9 @@ def fast_training():
             smooth_movements = 0
             starvation_count = 0
             shrink_count = 0
+            food_rewards = 0
+            growth_rewards = 0
+            exploration_rewards = 0
             
             # Track performance
             training_time = 0
@@ -244,26 +247,44 @@ def fast_training():
                 
                 # Get action and update game
                 action = agent.act(state)
+                game_start = time.time()
                 next_state, reward, done, info = game.step(action)
+                game_time += time.time() - game_start
                 
                 # Track metrics
                 if info['ate_plant']:
                     plants_eaten += 1
-                if info['wall_collision']:
+                
+                reward_source = game.last_reward_source
+                
+                # Food rewards
+                if 'Food' in reward_source:
+                    food_rewards += 1
+                    if ' + Growth' in reward_source:
+                        growth_rewards += 1
+                
+                # Movement rewards (mutually exclusive)
+                if 'Sharp Turn' in reward_source:
+                    sharp_turns += 1
+                elif 'Direction Change' in reward_source:
+                    direction_changes += 1
+                elif 'Smooth Movement' in reward_source:
+                    smooth_movements += 1
+                
+                # Exploration rewards
+                if 'Exploration' in reward_source:
+                    exploration_rewards += 1
+                
+                # Wall penalties
+                if 'Wall Collision' in reward_source:
                     wall_collisions += 1
-                    if 'Wall Stay' in game.last_reward_source:
+                    if ' + Wall Stay' in reward_source:
                         wall_stays += 1
                 
-                # Track other rewards/penalties
-                if game.last_reward_source.startswith('Direction Change'):
-                    direction_changes += 1
-                elif game.last_reward_source.startswith('Sharp Turn'):
-                    sharp_turns += 1
-                elif game.last_reward_source.startswith('Smooth Movement'):
-                    smooth_movements += 1
-                elif game.last_reward_source.startswith('Starvation'):
+                # Health penalties (mutually exclusive)
+                if 'Starvation' in reward_source:
                     starvation_count += 1
-                elif game.last_reward_source.startswith('Shrinking'):
+                elif 'Shrinking' in reward_source:
                     shrink_count += 1
                 
                 # Track visited positions
@@ -321,11 +342,11 @@ def fast_training():
                 print(f"\nEpisode {episode}/{TRAINING_EPISODES}")
                 print(f"Steps: {steps_survived}/{steps_per_episode}")
                 print(f"Reward: {total_reward:.2f}")
-                print(f"Plants: {plants_eaten}")
+                print(f"Plants: {plants_eaten} (Food: {food_rewards}, Growth: {growth_rewards})")
                 print(f"Wall Hits: {wall_collisions} (Stays: {wall_stays})")
                 print(f"Movement: {smooth_movements} (Sharp: {sharp_turns}, Dir: {direction_changes})")
                 print(f"Health: {shrink_count} shrinks, {starvation_count} starves")
-                print(f"Explore: {exploration_ratio:.2f}")
+                print(f"Explore: {exploration_ratio:.2f} ({exploration_rewards} rewards)")
                 print(f"Epsilon: {agent.epsilon:.3f}")
                 print(f"Episode Time: {episode_time:.2f}s")
                 print(f"Game Time: {game_time:.2f}s")
