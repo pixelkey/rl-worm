@@ -229,6 +229,7 @@ def fast_training():
             episode_positions = set()
             wall_collisions = 0
             wall_stays = 0
+            danger_zone_count = 0
             direction_changes = 0
             sharp_turns = 0
             smooth_movements = 0
@@ -278,8 +279,10 @@ def fast_training():
                 # Wall penalties
                 if 'Wall Collision' in reward_source:
                     wall_collisions += 1
-                    if ' + Wall Stay' in reward_source:
-                        wall_stays += 1
+                if 'Wall Stay' in reward_source:
+                    wall_stays += 1
+                if 'Danger Zone' in reward_source:
+                    danger_zone_count += 1
                 
                 # Health penalties (mutually exclusive)
                 if 'Starvation' in reward_source:
@@ -321,6 +324,8 @@ def fast_training():
             metrics = {
                 'avg_reward': total_reward,
                 'wall_collisions': wall_collisions,
+                'wall_stays': wall_stays,
+                'danger_zone_count': danger_zone_count,
                 'exploration_ratio': exploration_ratio,
                 'movement_smoothness': steps_survived / steps_per_episode,
                 'epsilon': agent.epsilon
@@ -344,6 +349,7 @@ def fast_training():
                 print(f"Reward: {total_reward:.2f}")
                 print(f"Plants: {plants_eaten} (Food: {food_rewards}, Growth: {growth_rewards})")
                 print(f"Wall Hits: {wall_collisions} (Stays: {wall_stays})")
+                print(f"Danger Zone: {danger_zone_count}")
                 print(f"Movement: {smooth_movements} (Sharp: {sharp_turns}, Dir: {direction_changes})")
                 print(f"Health: {shrink_count} shrinks, {starvation_count} starves")
                 print(f"Explore: {exploration_ratio:.2f} ({exploration_rewards} rewards)")

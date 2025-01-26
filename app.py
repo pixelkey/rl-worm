@@ -490,7 +490,10 @@ class WormGame:
                 # Less aggressive exponential growth (1.3 instead of 1.5)
                 stay_penalty = self.PENALTY_WALL_STAY * (1.3 ** min(self.wall_stay_count, 10))
                 reward += stay_penalty
-                self.last_reward_source += f" + Wall Stay ({stay_penalty:.1f})"
+                if wall_collision:
+                    self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
+                else:
+                    self.last_reward_source = f"Wall Stay ({stay_penalty:.1f})"
         else:
             # Reset wall stay counter when away from walls
             self.wall_stay_count = 0
