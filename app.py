@@ -1127,19 +1127,31 @@ class WormAgent:
         
         # Try to load saved model
         try:
-            checkpoint = torch.load('models/saved/worm_model.pth')
+            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
+            model_path = os.path.join(model_dir, 'worm_model.pth')
+            print(f"Attempting to load model from {model_path}")
+            
+            if not os.path.exists(model_path):
+                print(f"Model file does not exist at {model_path}")
+                print("No saved model found, starting fresh")
+                return
+                
+            checkpoint = torch.load(model_path, map_location=self.device)
             if checkpoint['state_size'] == state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 self.epsilon = checkpoint['epsilon']
-                print(f"Loaded training state. Epsilon: {self.epsilon:.4f}")
+                print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
+                
+                # Sync target model with main model after loading
+                self.target_model.load_state_dict(self.model.state_dict())
             else:
-                print("Old model architecture detected, starting fresh")
-        except:
+                print(f"Model has wrong state size: expected {state_size}, got {checkpoint['state_size']}")
+                print("Starting fresh with new model")
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
             print("No saved model found, starting fresh")
             
-        self.target_model.load_state_dict(self.model.state_dict())
-    
     def _build_model(self):
         return nn.Sequential(
             nn.Linear(self.state_size, 128),
