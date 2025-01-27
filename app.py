@@ -155,27 +155,28 @@ class WormGame:
         
         # Wall collision tracking
         self.wall_stay_count = 0
-        self.danger_zone_distance = self.head_size * 1.8  # Reduced from 2.0 for even more maneuverability
-        self.danger_zone_start_ratio = 0.9  # Increased from 0.85
-        self.wall_stay_increment = 0.2  # Reduced from 0.25
-        self.wall_collision_increment = 0.8  # Reduced from 1.0
-        self.wall_stay_recovery = 0.5  # Increased from 0.4
-        self.wall_stay_exp_base = 1.15  # Reduced from 1.2
+        self.danger_zone_distance = self.head_size * 1.8
+        self.danger_zone_start_ratio = 0.9
+        self.wall_stay_increment = 0.4  # Doubled from 0.2 for faster penalty buildup
+        self.wall_collision_increment = 1.0  # Increased from 0.8 for stronger collision impact
+        self.wall_stay_recovery = 0.3  # Reduced from 0.5 to make recovery slower
+        self.wall_stay_exp_base = 1.25  # Increased from 1.15 for faster exponential growth
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 1000.0  # Increased from 750.0 to strongly reinforce food collection
-        self.REWARD_FOOD_HUNGER_SCALE = 10.0  # Increased from 8.0 for more urgency
-        self.REWARD_GROWTH = 100.0  # Increased from 75.0 to encourage plant collection
-        self.REWARD_SMOOTH_MOVEMENT = 0.8  # Increased from 0.5 to promote smoother movement
-        self.REWARD_EXPLORATION = 4.0  # Increased from 3.0 for better exploration
+        self.REWARD_FOOD_BASE = 1000.0
+        self.REWARD_FOOD_HUNGER_SCALE = 10.0
+        self.REWARD_GROWTH = 100.0
+        self.REWARD_SMOOTH_MOVEMENT = 0.8
+        self.REWARD_EXPLORATION = 4.0
         
-        self.PENALTY_WALL = -35.0  # Reduced from -40.0 since wall avoidance is good
-        self.PENALTY_WALL_STAY = -10.0  # Reduced from -12.0
-        self.PENALTY_SHARP_TURN = -1.5  # Increased from -1.0 to further discourage erratic movement
-        self.PENALTY_STARVATION_BASE = -1.5  # Increased from -1.0 for more urgency
-        self.PENALTY_DIRECTION_CHANGE = -0.8  # Increased from -0.5 to promote smoother paths
-        self.PENALTY_SHRINK = -25.0  # Increased from -20.0
-        self.PENALTY_DANGER_ZONE = -2.5  # Reduced from -3.0
+        # Wall penalties increased and rebalanced
+        self.PENALTY_WALL = -50.0
+        self.PENALTY_WALL_STAY = -20.0  # Increased from -15.0 for stronger wall stay deterrent
+        self.PENALTY_SHARP_TURN = -1.5
+        self.PENALTY_STARVATION_BASE = -1.5
+        self.PENALTY_DIRECTION_CHANGE = -0.8
+        self.PENALTY_SHRINK = -25.0
+        self.PENALTY_DANGER_ZONE = -5.0  # Doubled from -2.5 to make danger zone more threatening
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -468,47 +469,52 @@ class WormGame:
         # Apply danger zone penalty before actual collision
         if wall_dist < self.danger_zone_distance:
             # Exponential scaling of penalty based on proximity
-            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2  # Square for exponential scaling
+            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2
             danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
             reward += danger_penalty
             
             # Increment wall stay counter even in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
-                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)  # Increment by 0.5 instead of 1
+                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)
                 stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
                 reward += stay_penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
+        else:
+            # Simply decay wall stay counter when away from danger zone
+            # No positive reward for moving away - this removes the perverse incentive
+            self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)
         
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             reward += self.PENALTY_WALL
-            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)  # Bigger increment on actual collision
+            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)
             stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
             reward += stay_penalty
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
-            # Add bounce effect
+            # Greatly reduced and randomized bounce effect
+            # Instead of perfect reflection, add a random angle change
+            bounce_strength = 0.3  # Reduced from 1.0 (perfect reflection)
+            random_angle = random.uniform(-math.pi/2, math.pi/2)  # Random angle between -90 and +90 degrees
+            
             if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
-                self.angle = math.pi - self.angle + random.uniform(-0.2, 0.2)
+                # Horizontal collision - mix between reflection and random
+                reflected_angle = math.pi - self.angle
+                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
             else:
-                self.angle = -self.angle + random.uniform(-0.2, 0.2)
+                # Vertical collision - mix between reflection and random
+                reflected_angle = -self.angle
+                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
+            
+            # Add extra randomness to speed after collision
+            self.speed = max(1.0, self.speed * random.uniform(0.5, 0.8))  # Reduce speed by 20-50%
             
             # Constrain position
             new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
             new_head_y = np.clip(new_head_y, self.head_size, self.height - self.head_size)
-        else:
-            # Gradually decrease wall stay counter when away from danger zone
-            if wall_dist > self.danger_zone_distance:
-                self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)  # Slow recovery
-                
-                # Add recovery bonus if moving away from walls
-                if self.wall_stay_count > 0:  # Only if recovering from wall interaction
-                    recovery_bonus = self.REWARD_EXPLORATION * (wall_dist / self.danger_zone_distance)
-                    reward += recovery_bonus
-                    self.last_reward_source = f"Wall Recovery ({recovery_bonus:.1f})"
         
         # Update position
         self.x = new_head_x
@@ -1168,13 +1174,56 @@ class WormAgent:
             print("No saved model found, starting fresh")
             
     def _build_model(self):
+        """Build the neural network model.
+        Architecture from saved model:
+        - Input: 14 features
+        - Hidden 1: 128 neurons
+        - Hidden 2: 128 neurons
+        - Output: 9 actions
+        """
         return nn.Sequential(
-            nn.Linear(self.state_size, 128),
+            nn.Linear(self.state_size, 128),  # [14 -> 128]
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(128, 128),   # [128 -> 128]
             nn.ReLU(),
-            nn.Linear(128, self.action_size)
+            nn.Linear(128, self.action_size)  # [128 -> 9]
         )
+    
+    def load_model(self, model_path):
+        """Load and verify model weights"""
+        try:
+            print(f"\nAttempting to load model from {model_path}")
+            if not os.path.exists(model_path):
+                print(f"Model file does not exist at {model_path}")
+                return False
+                
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
+            
+            # Print model architectures for comparison
+            print("\nCurrent Model Architecture:")
+            print(self.model)
+            
+            # Load and verify weights
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.epsilon = checkpoint['epsilon']
+            
+            # Verify model loaded correctly by checking a few weights
+            print("\nVerifying model weights:")
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    print(f"{name}: Shape {param.shape}, Mean {param.mean().item():.6f}, Std {param.std().item():.6f}")
+            
+            print(f"\nModel loaded successfully with epsilon: {self.epsilon:.4f}")
+            
+            # Sync target model
+            self.target_model.load_state_dict(self.model.state_dict())
+            return True
+            
+        except Exception as e:
+            print(f"\nError loading model: {str(e)}")
+            print("Starting fresh with new model")
+            return False
     
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -1241,7 +1290,7 @@ agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
 # Load the best model if in demo mode
 if args.demo:
-    agent.load_state = True
+    agent.load_model = True
     agent.epsilon = 0.01  # Very little exploration in demo mode
     print("Running in demo mode with best trained model")
 
