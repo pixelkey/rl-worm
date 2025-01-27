@@ -99,6 +99,9 @@ class WormGame:
         # Eye properties
         self.eye_size = int(self.head_size * 0.25)
         self.eye_offset = int(self.head_size * 0.3)
+        self.current_pupil_x = 0  # Current pupil x offset
+        self.current_pupil_y = 0  # Current pupil y offset
+        self.pupil_move_speed = 0.15  # Speed of pupil movement (0 to 1, lower is slower)
         
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
@@ -880,15 +883,51 @@ class WormGame:
             pygame.draw.circle(self.game_surface, self.eye_color,
                             (int(right_eye_x), int(right_eye_y)), self.eye_size)
             
-            # Adjust pupil position based on expression
+            # Find nearest plant
+            nearest_plant = None
+            min_dist = float('inf')
+            plant_x = plant_y = None
+            
+            for plant in self.plants:
+                plant_rect = plant.get_bounding_box()
+                plant_center_x = plant_rect.centerx
+                plant_center_y = plant_rect.centery
+                dx = plant_center_x - x
+                dy = plant_center_y - y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_plant = plant
+                    plant_x = plant_center_x
+                    plant_y = plant_center_y
+            
+            # Adjust pupil positions based on nearest plant and expression
             pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
             pupil_size = self.eye_size // 2
             
-            # Draw pupils (black part) - shifted based on expression
+            # Calculate target pupil position
+            target_x = 0
+            target_y = pupil_y_offset  # Start with expression offset
+            
+            if nearest_plant:
+                # Calculate angle to plant
+                plant_angle = math.atan2(plant_y - y, plant_x - x)
+                # Limit pupil movement to 70% of eye size
+                max_pupil_offset = self.eye_size * 0.7
+                target_x = math.cos(plant_angle) * max_pupil_offset
+                target_y += math.sin(plant_angle) * max_pupil_offset
+            
+            # Smoothly interpolate current position towards target
+            self.current_pupil_x += (target_x - self.current_pupil_x) * self.pupil_move_speed
+            self.current_pupil_y += (target_y - self.current_pupil_y) * self.pupil_move_speed
+            
+            # Draw pupils (black part) with interpolated position
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(left_eye_x), int(left_eye_y - pupil_y_offset)), pupil_size)
+                            (int(left_eye_x + self.current_pupil_x), 
+                             int(left_eye_y + self.current_pupil_y)), pupil_size)
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(right_eye_x), int(right_eye_y - pupil_y_offset)), pupil_size)
+                            (int(right_eye_x + self.current_pupil_x),
+                             int(right_eye_y + self.current_pupil_y)), pupil_size)
             
             # Draw eyebrows
             brow_length = self.eye_size * 1.2
