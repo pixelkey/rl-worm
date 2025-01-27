@@ -170,11 +170,11 @@ class WormGame:
         self.REWARD_EXPLORATION = 5.0
         
         # Penalties
-        self.PENALTY_WALL = -10.0  # Re-enable wall collision penalty
-        self.PENALTY_WALL_STAY = -5.0  # Re-enable wall stay penalty
-        self.wall_stay_scale = 1.0  # Re-enable wall stay scaling
-        self.PENALTY_SHARP_TURN = -2.0
-        self.PENALTY_DIRECTION_CHANGE = -0.8
+        self.PENALTY_WALL = -50.0  # Re-enable wall collision penalty
+        self.PENALTY_WALL_STAY = -20.0  # Re-enable wall stay penalty
+        self.wall_stay_scale = 2.0  # Re-enable wall stay scaling
+        self.PENALTY_SHARP_TURN = -0.2
+        self.PENALTY_DIRECTION_CHANGE = -0.4
         self.PENALTY_SHRINK = -25.0
         self.PENALTY_DANGER_ZONE = -2.0  # Re-enable danger zone penalty
         self.PENALTY_STARVATION_BASE = -1.5
