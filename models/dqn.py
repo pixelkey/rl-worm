@@ -40,11 +40,15 @@ class ReplayBuffer:
         self.buffer = []
         self.position = 0
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.reward_scale = 200.0  # Scale factor for reward normalization
 
     def push(self, state, action, reward, next_state, done):
+        # Normalize reward on storage
+        normalized_reward = np.clip(reward / self.reward_scale, -1.0, 1.0)
+        
         if len(self.buffer) < self.capacity:
             self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
+        self.buffer[self.position] = (state, action, normalized_reward, next_state, done)
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
@@ -116,19 +120,28 @@ class WormAgent:
 
     def get_state(self, worm_positions, velocity, screen_size):
         head_pos = worm_positions[-1]
+        
+        # Calculate distances to walls and normalize to [-1, 1]
         distances_to_walls = [
-            head_pos[0],  # distance to left wall
-            screen_size[0] - head_pos[0],  # distance to right wall
-            head_pos[1],  # distance to top wall
-            screen_size[1] - head_pos[1]  # distance to bottom wall
+            head_pos[0] / (screen_size[0] * 0.5) - 1,  # distance to left wall
+            (screen_size[0] - head_pos[0]) / (screen_size[0] * 0.5) - 1,  # distance to right wall
+            head_pos[1] / (screen_size[1] * 0.5) - 1,  # distance to top wall
+            (screen_size[1] - head_pos[1]) / (screen_size[1] * 0.5) - 1  # distance to bottom wall
         ]
         
-        # Normalize all values
-        normalized_pos = [head_pos[0]/screen_size[0], head_pos[1]/screen_size[1]]
-        normalized_vel = [velocity[0]/5.0, velocity[1]/5.0]  # assuming max speed is 5
-        normalized_distances = [d/max(screen_size) for d in distances_to_walls]
+        # Normalize position to [-1, 1]
+        normalized_pos = [
+            head_pos[0] / (screen_size[0] * 0.5) - 1,
+            head_pos[1] / (screen_size[1] * 0.5) - 1
+        ]
         
-        state = normalized_pos + normalized_vel + normalized_distances
+        # Normalize velocity to [-1, 1] assuming max speed is 5
+        normalized_vel = [
+            velocity[0] / 5.0,
+            velocity[1] / 5.0
+        ]
+        
+        state = normalized_pos + normalized_vel + distances_to_walls
         return np.array(state, dtype=np.float32)
 
     def get_action_movement(self, action):
@@ -154,43 +167,43 @@ class WormAgent:
         
         self.steps += 1
         
-        # Sample multiple batches for better GPU utilization
-        n_batches = 4
-        total_loss = 0
+        # Sample a single larger batch for more stable learning
+        states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size * 4)
         
-        for _ in range(n_batches):
-            states, actions, rewards, next_states, dones = self.memory.sample(self.batch_size)
+        # Use torch.amp.autocast for mixed precision training
+        with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
+            # Compute current Q values
+            current_q_values = self.model(states).gather(1, actions.unsqueeze(1))
             
-            # Use torch.amp.autocast instead of deprecated torch.cuda.amp.autocast
-            with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
-                # Compute current Q values
-                current_q_values = self.model(states).gather(1, actions.unsqueeze(1))
+            # Compute next Q values with target network
+            with torch.no_grad():
+                # Double DQN: Use online network to select action, target network to evaluate
+                next_actions = self.model(next_states).argmax(1, keepdim=True)
+                next_q_values = self.target_model(next_states).gather(1, next_actions)
                 
-                # Compute next Q values
-                with torch.no_grad():
-                    next_q_values = self.target_model(next_states).max(1)[0]
-                    target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
-                
-                # Compute loss and optimize
-                loss = F.mse_loss(current_q_values.squeeze(), target_q_values)
+                # Compute target Q values
+                target_q_values = rewards + (1 - dones) * self.gamma * next_q_values.squeeze()
             
-            self.optimizer.zero_grad()
-            loss.backward()
-            
-            # Gradient clipping
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            
-            self.optimizer.step()
-            total_loss += loss.item()
+            # Compute Huber loss (more stable than MSE)
+            loss = F.smooth_l1_loss(current_q_values.squeeze(), target_q_values)
+        
+        # Optimize
+        self.optimizer.zero_grad()
+        loss.backward()
+        
+        # Gradient clipping
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+        
+        self.optimizer.step()
         
         # Update target network
         if self.steps % self.update_target_every == 0:
             self.target_model.load_state_dict(self.model.state_dict())
         
-        # Decay epsilon
+        # Decay epsilon with a minimum value
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         
-        return total_loss / n_batches
+        return loss.item()
 
     def update_target_model(self):
         self.target_model.load_state_dict(self.model.state_dict())

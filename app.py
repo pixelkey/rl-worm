@@ -157,27 +157,27 @@ class WormGame:
         self.wall_stay_count = 0
         self.danger_zone_distance = self.head_size * 1.8
         self.danger_zone_start_ratio = 0.9
-        self.wall_stay_increment = 0.3  # Reduced from 0.4
-        self.wall_collision_increment = 0.8  # Back to original value
-        self.wall_stay_recovery = 0.4  # Back to original value
-        self.wall_stay_exp_base = 1.15  # Back to original value
+        self.wall_stay_increment = 0.3
+        self.wall_collision_increment = 0.8
+        self.wall_stay_recovery = 0.4
+        self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 100.0  # Reduced from 500.0 to be more balanced with penalties
+        self.REWARD_FOOD_BASE = 100.0
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
-        self.REWARD_GROWTH = 50.0  # Reduced from 100.0
+        self.REWARD_GROWTH = 50.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
-        self.REWARD_EXPLORATION = 5.0  # Kept same to encourage movement
+        self.REWARD_EXPLORATION = 5.0
         
         # Penalties
-        self.PENALTY_WALL = -200.0  # Increased from -100.0 to be more significant
-        self.PENALTY_WALL_STAY = -30.0  # Doubled from -15.0
-        self.wall_stay_scale = 0.5
+        self.PENALTY_WALL = -200.0
+        self.PENALTY_WALL_STAY = -30.0
+        self.wall_stay_scale = 1.0  # Increased from 0.5 for stronger wall stay penalty
         self.PENALTY_SHARP_TURN = -2.0
         self.PENALTY_DIRECTION_CHANGE = -0.8
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -5.0  # Doubled from -2.5 to make walls more repulsive
-        self.PENALTY_STARVATION_BASE = -1.5  # Increased from -1.0 to maintain urgency
+        self.PENALTY_DANGER_ZONE = -20.0  # Increased from -5.0 to create better gradient
+        self.PENALTY_STARVATION_BASE = -1.5
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -476,9 +476,10 @@ class WormGame:
             
             # Increment wall stay counter even in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
-                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)
-                stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))  # Keep it negative
-                reward += stay_penalty  # Add the negative penalty
+                self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment  # Remove cap
+                # Exponential penalty growth
+                stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
+                reward += stay_penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
@@ -491,8 +492,8 @@ class WormGame:
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             reward += self.PENALTY_WALL  # Add the negative penalty
-            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)
-            stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))  # Keep it negative
+            self.wall_stay_count = self.wall_stay_count + self.wall_collision_increment  # Remove cap
+            stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
             reward += stay_penalty  # Add the negative penalty
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
@@ -975,78 +976,71 @@ class WormGame:
     
     def _get_state(self):
         """Get the current state for the neural network"""
-        # Calculate distances to walls
-        wall_dists = [
-            self.x,  # Distance to left wall
-            self.width - self.x,  # Distance to right wall
-            self.y,  # Distance to top wall
-            self.height - self.y  # Distance to bottom wall
-        ]
+        # Get head position
+        head_x, head_y = self.positions[0]
         
-        # Calculate velocity
+        # Calculate normalized positions [-1, 1]
+        norm_x = (head_x / self.width) * 2 - 1
+        norm_y = (head_y / self.height) * 2 - 1
+        
+        # Calculate normalized velocity components [-1, 1]
+        vel_x = math.cos(self.angle)
+        vel_y = math.sin(self.angle)
+        
+        # Normalize angle to [-1, 1]
+        norm_angle = self.angle / math.pi
+        
+        # Calculate angular velocity (change in angle) [-1, 1]
+        # This is already normalized by angular_speed
+        angular_vel = 0
         if len(self.positions) > 1:
             prev_x, prev_y = self.positions[1]
-            vel_x = (self.x - prev_x) / self.segment_length
-            vel_y = (self.y - prev_y) / self.segment_length
-        else:
-            vel_x = vel_y = 0
+            angular_vel = math.atan2(head_y - prev_y, head_x - prev_x) / math.pi
         
-        # Find closest plant
-        closest_dist = float('inf')
-        closest_angle = 0
-        plant_state = 0
+        # Get nearest plant info
+        nearest_dist = float('inf')
+        nearest_dx = 0
+        nearest_dy = 0
         
         for plant in self.plants:
-            dx = plant.x - self.x
-            dy = plant.y - self.y
+            dx = plant.x - head_x
+            dy = plant.y - head_y
             dist = math.sqrt(dx*dx + dy*dy)
-            
-            if dist < closest_dist:
-                closest_dist = dist
-                # Calculate angle to plant relative to worm's current angle
-                plant_angle = math.atan2(dy, dx)
-                closest_angle = (plant_angle - self.angle + math.pi) % (2*math.pi) - math.pi
-                
-                # Get plant state
-                if plant.state == 'growing':
-                    plant_state = 1
-                elif plant.state == 'mature':
-                    plant_state = 2
-                else:  # wilting
-                    plant_state = 3
+            if dist < nearest_dist:
+                nearest_dist = dist
+                nearest_dx = dx
+                nearest_dy = dy
         
-        # Normalize values
-        closest_dist = min(1.0, closest_dist / self.game_height)
-        closest_angle = (closest_angle + math.pi) / (2 * math.pi)  # Normalize to [0,1]
-        plant_state = plant_state / 3.0  # Normalize to [0,1]
+        # Normalize plant distances [-1, 1]
+        max_dist = math.sqrt(self.width**2 + self.height**2)
+        if nearest_dist == float('inf'):
+            plant_dist = 1.0  # Maximum normalized distance
+            plant_dx = 0
+            plant_dy = 0
+        else:
+            plant_dist = (nearest_dist / max_dist) * 2 - 1
+            plant_dx = nearest_dx / max_dist
+            plant_dy = nearest_dy / max_dist
         
-        # Calculate angular velocity (difference between current and target angle)
-        angle_diff = (self.target_angle - self.angle + math.pi) % (2 * math.pi) - math.pi
-        angular_vel = angle_diff / math.pi  # Normalize to [-1,1]
+        # Calculate normalized distances to walls [-1, 1]
+        left_dist = head_x / self.width
+        right_dist = (self.width - head_x) / self.width
+        top_dist = head_y / self.height
+        bottom_dist = (self.height - head_y) / self.height
         
-        # Normalize current angle
-        norm_angle = (self.angle % (2 * math.pi)) / (2 * math.pi)  # Normalize to [0,1]
+        # Normalize hunger [0, 1]
+        norm_hunger = self.hunger / self.max_hunger
         
-        # Combine all state components
-        state = [
-            self.x / self.width,  # Normalized position
-            self.y / self.height,
-            vel_x,  # Already normalized by segment_length
-            vel_y,
-            norm_angle,  # Current angle [0,1]
-            angular_vel,  # Angular velocity [-1,1]
-            closest_dist,  # Distance to closest plant [0,1]
-            closest_angle,  # Angle to closest plant [0,1]
-            plant_state,  # State of closest plant [0,1]
-            wall_dists[0] / self.width,  # Normalized wall distances
-            wall_dists[1] / self.width,
-            wall_dists[2] / self.height,
-            wall_dists[3] / self.height,
-            self.hunger / self.max_hunger  # Normalized hunger [0,1]
-        ]
-        
-        return state
-
+        return np.array([
+            norm_x, norm_y,           # Position (2)
+            vel_x, vel_y,             # Velocity (2)
+            norm_angle,               # Angle (1)
+            angular_vel,              # Angular velocity (1)
+            plant_dist, plant_dx, plant_dy,  # Plant info (3)
+            left_dist, right_dist, top_dist, bottom_dist,  # Wall distances (4)
+            norm_hunger               # Hunger (1)
+        ], dtype=np.float32)
+    
     def reset(self):
         """Reset the game state"""
         # Reset worm position to center

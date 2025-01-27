@@ -61,12 +61,12 @@ class WormAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.memory = deque(maxlen=100000)
-        self.batch_size = 512  # Reduced from 4096 for more stable learning
+        self.batch_size = 512
         self.gamma = 0.99
         self.epsilon = 1.0
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.9995  # Slower decay for better exploration
-        self.learning_rate = 0.0005  # Reduced for more stable learning
+        self.epsilon_decay = 0.9995
+        self.learning_rate = 0.0005
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         print(f"Using device: {self.device}")
@@ -80,6 +80,19 @@ class WormAgent:
         
         # Try to load saved model
         self.load()
+
+    def remember(self, state, action, reward, next_state, done):
+        # Normalize reward to roughly [-1, 1] range
+        # Base scale on wall hit (-200) and food reward (~100)
+        normalized_reward = np.clip(reward / 200.0, -1.0, 1.0)
+        
+        # Ensure states are numpy arrays with correct dtype
+        if not isinstance(state, np.ndarray):
+            state = np.array(state, dtype=np.float32)
+        if not isinstance(next_state, np.ndarray):
+            next_state = np.array(next_state, dtype=np.float32)
+        
+        self.memory.append((state, action, normalized_reward, next_state, done))
     
     def _build_model(self):
         return nn.Sequential(
@@ -93,14 +106,6 @@ class WormAgent:
             nn.ReLU(),
             nn.Linear(256, self.action_size)
         )
-    
-    def remember(self, state, action, reward, next_state, done):
-        # Ensure states are numpy arrays with correct dtype
-        if not isinstance(state, np.ndarray):
-            state = np.array(state, dtype=np.float32)
-        if not isinstance(next_state, np.ndarray):
-            next_state = np.array(next_state, dtype=np.float32)
-        self.memory.append((state, action, reward, next_state, done))
     
     def act(self, state):
         if random.random() <= self.epsilon:
