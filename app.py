@@ -644,11 +644,6 @@ class WormGame:
                 # Return to neutral for insignificant rewards
                 self.set_expression(0, 0.5)  # Neutral with medium speed
             
-            # Debug info
-            if abs(expression_target) > 0.2:  # Only print significant changes
-                print(f"Expression: target={expression_target:.2f}, magnitude={expression_magnitude:.2f}")
-                print(f"Recent rewards mean={mean_reward:.2f}, pos_std={pos_std:.2f}, neg_std={neg_std:.2f}")
-        
         # Update previous action
         self.prev_action = action
         
