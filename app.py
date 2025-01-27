@@ -1144,7 +1144,7 @@ class WormAgent:
         self.model = self._build_model().to(self.device)
         self.target_model = self._build_model().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=True)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=False)  # Disabled verbose
         
         # Try to load saved model
         try:
@@ -1157,7 +1157,7 @@ class WormAgent:
                 print("No saved model found, starting fresh")
                 return
                 
-            checkpoint = torch.load(model_path, map_location=self.device)
+            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
             if checkpoint['state_size'] == state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -1188,42 +1188,6 @@ class WormAgent:
             nn.ReLU(),
             nn.Linear(128, self.action_size)  # [128 -> 9]
         )
-    
-    def load_model(self, model_path):
-        """Load and verify model weights"""
-        try:
-            print(f"\nAttempting to load model from {model_path}")
-            if not os.path.exists(model_path):
-                print(f"Model file does not exist at {model_path}")
-                return False
-                
-            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
-            
-            # Print model architectures for comparison
-            print("\nCurrent Model Architecture:")
-            print(self.model)
-            
-            # Load and verify weights
-            self.model.load_state_dict(checkpoint['model_state_dict'])
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.epsilon = checkpoint['epsilon']
-            
-            # Verify model loaded correctly by checking a few weights
-            print("\nVerifying model weights:")
-            for name, param in self.model.named_parameters():
-                if param.requires_grad:
-                    print(f"{name}: Shape {param.shape}, Mean {param.mean().item():.6f}, Std {param.std().item():.6f}")
-            
-            print(f"\nModel loaded successfully with epsilon: {self.epsilon:.4f}")
-            
-            # Sync target model
-            self.target_model.load_state_dict(self.model.state_dict())
-            return True
-            
-        except Exception as e:
-            print(f"\nError loading model: {str(e)}")
-            print("Starting fresh with new model")
-            return False
     
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
