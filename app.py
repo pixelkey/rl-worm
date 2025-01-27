@@ -908,36 +908,48 @@ class WormGame:
             pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
             pupil_size = self.eye_size // 2
             
-            # Calculate target pupil positions
+            # Calculate target pupil positions - start at center with expression offset
             target_left_x = 0
             target_left_y = pupil_y_offset
             target_right_x = 0
             target_right_y = pupil_y_offset
             
             if nearest_plant:
-                # Calculate distance-based convergence (closer = more convergence)
-                convergence_distance = self.head_size * 8  # Distance at which convergence starts
-                convergence = max(0, 1 - (min_dist / convergence_distance))
-                convergence *= self.max_convergence  # Scale by max convergence factor
-                
-                # Calculate angles from each eye to plant
+                # Calculate angles and distances from each eye to plant
                 left_dx = plant_x - left_eye_x
                 left_dy = plant_y - left_eye_y
                 right_dx = plant_x - right_eye_x
                 right_dy = plant_y - right_eye_y
                 
-                left_angle = math.atan2(left_dy, left_dx)
-                right_angle = math.atan2(right_dy, right_dx)
+                left_dist = math.sqrt(left_dx * left_dx + left_dy * left_dy)
+                right_dist = math.sqrt(right_dx * right_dx + right_dy * right_dy)
                 
-                # Limit pupil movement to 70% of eye size
-                max_pupil_offset = self.eye_size * 0.7
+                # Normalize direction vectors
+                left_dx /= left_dist if left_dist > 0 else 1
+                left_dy /= left_dist if left_dist > 0 else 1
+                right_dx /= right_dist if right_dist > 0 else 1
+                right_dy /= right_dist if right_dist > 0 else 1
                 
-                # Calculate target positions with convergence
-                target_left_x = math.cos(left_angle) * max_pupil_offset + (convergence * self.eye_size)
-                target_left_y = math.sin(left_angle) * max_pupil_offset + pupil_y_offset
+                # Calculate distance-based convergence (closer = more convergence)
+                convergence_distance = self.head_size * 8  # Distance at which convergence starts
+                convergence = max(0, 1 - (min_dist / convergence_distance))
+                convergence *= self.max_convergence  # Scale by max convergence factor
                 
-                target_right_x = math.cos(right_angle) * max_pupil_offset - (convergence * self.eye_size)
-                target_right_y = math.sin(right_angle) * max_pupil_offset + pupil_y_offset
+                # Limit pupil movement to 60% of eye size
+                max_pupil_offset = self.eye_size * 0.6
+                
+                # Calculate base offset for each eye
+                left_base_x = left_dx * max_pupil_offset
+                left_base_y = left_dy * max_pupil_offset
+                right_base_x = right_dx * max_pupil_offset
+                right_base_y = right_dy * max_pupil_offset
+                
+                # Add convergence effect (pull pupils inward based on distance)
+                convergence_strength = convergence * self.eye_size * 0.3
+                target_left_x = left_base_x + convergence_strength
+                target_left_y = left_base_y + pupil_y_offset
+                target_right_x = right_base_x - convergence_strength
+                target_right_y = right_base_y + pupil_y_offset
             
             # Smoothly interpolate current positions towards targets
             self.current_left_pupil_x += (target_left_x - self.current_left_pupil_x) * self.pupil_move_speed
