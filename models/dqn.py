@@ -9,30 +9,56 @@ import json
 import math
 
 class DQN(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, state_size, action_size):
         super(DQN, self).__init__()
-        # Larger network for better GPU utilization
-        self.network = nn.Sequential(
-            nn.Linear(input_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Linear(128, output_size)
-        )
         
-        # Initialize weights for better training
+        # Larger network with residual connections
+        self.input_layer = nn.Linear(state_size, 512)
+        
+        # Two parallel paths
+        self.path1_fc1 = nn.Linear(512, 512)
+        self.path1_fc2 = nn.Linear(512, 256)
+        
+        self.path2_fc1 = nn.Linear(512, 512)
+        self.path2_fc2 = nn.Linear(512, 256)
+        
+        # Combine paths
+        self.combine_fc = nn.Linear(512, 256)
+        self.output_layer = nn.Linear(256, action_size)
+        
+        # Batch normalization layers
+        self.bn1 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.bn3 = nn.BatchNorm1d(512)
+        self.bn4 = nn.BatchNorm1d(256)
+        
+        # Initialize weights
         self.apply(self._init_weights)
-        
+    
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             nn.init.kaiming_normal_(module.weight, nonlinearity='relu')
             if module.bias is not None:
-                nn.init.constant_(module.bias, 0)
-
+                nn.init.constant_(module.bias, 0.0)
+    
     def forward(self, x):
-        return self.network(x)
+        # Input layer with ReLU
+        x = F.relu(self.bn1(self.input_layer(x)))
+        
+        # Path 1 with residual connection
+        p1 = F.relu(self.bn2(self.path1_fc1(x)))
+        p1 = F.relu(self.path1_fc2(p1))
+        
+        # Path 2 with residual connection
+        p2 = F.relu(self.bn3(self.path2_fc1(x)))
+        p2 = F.relu(self.path2_fc2(p2))
+        
+        # Combine paths
+        combined = torch.cat((p1, p2), dim=1)
+        combined = F.relu(self.bn4(self.combine_fc(combined)))
+        
+        # Output layer
+        return self.output_layer(combined)
 
 class ReplayBuffer:
     def __init__(self, capacity):
