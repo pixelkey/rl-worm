@@ -178,7 +178,7 @@ class WormGame:
         # Penalties
         self.PENALTY_WALL = -50.0  # Keep strong wall collision penalty
         self.PENALTY_WALL_STAY = -20.0  # Keep strong wall stay penalty
-        self.wall_stay_scale = 2.0  # Keep strong scaling
+        self.wall_stay_scale = 1.2  # Keep strong scaling
         self.PENALTY_SHARP_TURN = -0.1  # Reduced to be less punishing for exploration
         self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
         self.PENALTY_SHRINK = -25.0
@@ -604,31 +604,42 @@ class WormGame:
         
         # Calculate emotional state from reward window
         if self.reward_window:
-            # Get the most recent rewards (last 30 steps)
+            # Get the most recent rewards
             window_size = 30  # Explicit window size for expression calculation
             recent_window = self.reward_window[-window_size:] if len(self.reward_window) > window_size else self.reward_window
             
-            # Calculate mean of rewards
+            # Calculate statistics separately for positive and negative rewards
+            pos_rewards = [r for r in recent_window if r > 0]
+            neg_rewards = [r for r in recent_window if r < 0]
+            
+            # Calculate mean reward for expression direction
             mean_reward = np.mean(recent_window)
             
-            # Find the maximum magnitude reward for normalization
-            max_magnitude = max(abs(max(recent_window)), abs(min(recent_window)))
+            # Calculate separate scales for positive and negative rewards
+            pos_std = np.std(pos_rewards) if pos_rewards else self.min_std
+            neg_std = np.std(neg_rewards) if neg_rewards else self.min_std
             
-            # Normalize to [-1, 1] range
-            expression_target = mean_reward / max_magnitude if max_magnitude > 0 else 0
-            expression_magnitude = abs(expression_target)  # Use normalized value for magnitude
+            # Use appropriate scale based on reward sign
+            typical_reward_scale = pos_std if mean_reward > 0 else neg_std
+            typical_reward_scale = max(typical_reward_scale, self.min_std)
             
-            # Amplify the magnitude to make expressions more pronounced
-            expression_magnitude = min(1.0, expression_magnitude * 2.0)  # Double the magnitude but cap at 1.0
+            # Normalize to [-1, 1] range using the adaptive scale
+            expression_target = np.clip(mean_reward / typical_reward_scale, -1.0, 1.0)
             
-            # Set the expression with the calculated target and magnitude
-            self.set_expression(expression_target, expression_magnitude)
+            # Calculate magnitude based on how significant the rewards are
+            expression_magnitude = min(1.0, abs(mean_reward) / typical_reward_scale)
+            
+            # Only show expression if the magnitude is significant
+            if abs(expression_target) > 0.2:  # Only react to more significant changes
+                self.set_expression(expression_target, expression_magnitude)
+            else:
+                # Return to neutral for insignificant rewards
+                self.set_expression(0, 0.5)  # Neutral with medium speed
             
             # Debug info
-            if abs(expression_target) > 0.1:  # Only print significant changes
+            if abs(expression_target) > 0.2:  # Only print significant changes
                 print(f"Expression: target={expression_target:.2f}, magnitude={expression_magnitude:.2f}")
-                print(f"Recent rewards mean={mean_reward:.2f}, max_magnitude={max_magnitude:.2f}")
-                print(f"Using all {len(recent_window)} rewards from window")
+                print(f"Recent rewards mean={mean_reward:.2f}, pos_std={pos_std:.2f}, neg_std={neg_std:.2f}")
         
         # Update previous action
         self.prev_action = action
