@@ -976,26 +976,28 @@ class WormGame:
     
     def _get_state(self):
         """Get the current state for the neural network"""
-        # Get head position
         head_x, head_y = self.positions[0]
         
         # Calculate normalized positions [-1, 1]
-        norm_x = (head_x / self.width) * 2 - 1
-        norm_y = (head_y / self.height) * 2 - 1
+        norm_x = (head_x / (self.width * 0.5)) - 1
+        norm_y = (head_y / (self.height * 0.5)) - 1
         
         # Calculate normalized velocity components [-1, 1]
-        vel_x = math.cos(self.angle)
-        vel_y = math.sin(self.angle)
+        if len(self.positions) > 1:
+            prev_x, prev_y = self.positions[1]
+            vel_x = (head_x - prev_x) / self.segment_length
+            vel_y = (head_y - prev_y) / self.segment_length
+        else:
+            vel_x = vel_y = 0
         
         # Normalize angle to [-1, 1]
         norm_angle = self.angle / math.pi
         
         # Calculate angular velocity (change in angle) [-1, 1]
-        # This is already normalized by angular_speed
         angular_vel = 0
         if len(self.positions) > 1:
-            prev_x, prev_y = self.positions[1]
-            angular_vel = math.atan2(head_y - prev_y, head_x - prev_x) / math.pi
+            prev_angle = math.atan2(head_y - prev_y, head_x - prev_x)
+            angular_vel = (self.angle - prev_angle) / math.pi
         
         # Get nearest plant info
         nearest_dist = float('inf')
@@ -1023,13 +1025,13 @@ class WormGame:
             plant_dy = nearest_dy / max_dist
         
         # Calculate normalized distances to walls [-1, 1]
-        left_dist = head_x / self.width
-        right_dist = (self.width - head_x) / self.width
-        top_dist = head_y / self.height
-        bottom_dist = (self.height - head_y) / self.height
+        left_dist = head_x / (self.width * 0.5) - 1
+        right_dist = (self.width - head_x) / (self.width * 0.5) - 1
+        top_dist = head_y / (self.height * 0.5) - 1
+        bottom_dist = (self.height - head_y) / (self.height * 0.5) - 1
         
-        # Normalize hunger [0, 1]
-        norm_hunger = self.hunger / self.max_hunger
+        # Normalize hunger [0, 1] then scale to [-1, 1]
+        norm_hunger = (self.hunger / self.max_hunger) * 2 - 1
         
         return np.array([
             norm_x, norm_y,           # Position (2)

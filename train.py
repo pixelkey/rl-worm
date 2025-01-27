@@ -24,10 +24,10 @@ pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-MIN_STEPS = 2000  # Start with 2000 steps
-MAX_STEPS = 5000  # Maximum steps per episode
-STEPS_INCREMENT = 100  # How many steps to add when performance improves
-PERFORMANCE_THRESHOLD = -100  # Reward threshold to increase steps
+MIN_STEPS = 3000  # Start with more steps
+MAX_STEPS = 8000  # Allow for longer episodes
+STEPS_INCREMENT = 200  # Larger increment for better progression
+PERFORMANCE_THRESHOLD = -50  # More lenient threshold
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
 
@@ -215,7 +215,7 @@ def fast_training():
     start_time = time.time()
     
     # Initialize agent and analytics
-    STATE_SIZE = 14
+    STATE_SIZE = 14  # [pos_x, pos_y, vel_x, vel_y, angle, angular_vel, plant_dist, plant_dx, plant_dy, wall_left, wall_right, wall_top, wall_bottom, hunger]
     ACTION_SIZE = 9
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
