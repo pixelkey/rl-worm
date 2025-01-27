@@ -105,6 +105,10 @@ class WormGame:
         self.current_right_pupil_y = 0  # Current right pupil y offset
         self.pupil_move_speed = 0.15  # Speed of pupil movement (0 to 1, lower is slower)
         self.max_convergence = 0.4  # Maximum inward convergence (0 to 1)
+        self.is_blinking = False
+        self.blink_end_time = 0
+        self.blink_start_time = 0  # When to start the blink
+        self.blink_duration = 0.1  # Blink duration in seconds
         
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
@@ -954,13 +958,34 @@ class WormGame:
             self.current_right_pupil_x += (target_right_x - self.current_right_pupil_x) * self.pupil_move_speed
             self.current_right_pupil_y += (target_right_y - self.current_right_pupil_y) * self.pupil_move_speed
             
-            # Draw pupils (black part) with interpolated positions
-            pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(left_eye_x + self.current_left_pupil_x), 
-                             int(left_eye_y + self.current_left_pupil_y)), pupil_size)
-            pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(right_eye_x + self.current_right_pupil_x),
-                             int(right_eye_y + self.current_right_pupil_y)), pupil_size)
+            # Check if blinking
+            current_time = time.time()
+            if self.is_blinking:
+                if current_time >= self.blink_start_time:
+                    if current_time < self.blink_end_time:
+                        # Calculate rotated blink line endpoints
+                        blink_length = self.eye_size
+                        # Left eye blink
+                        left_dx = math.cos(face_angle) * blink_length
+                        left_dy = math.sin(face_angle) * blink_length
+                        pygame.draw.line(self.game_surface, self.pupil_color,
+                                    (int(left_eye_x - left_dx), int(left_eye_y - left_dy)),
+                                    (int(left_eye_x + left_dx), int(left_eye_y + left_dy)), 2)
+                        # Right eye blink
+                        pygame.draw.line(self.game_surface, self.pupil_color,
+                                    (int(right_eye_x - left_dx), int(right_eye_y - left_dy)),
+                                    (int(right_eye_x + left_dx), int(right_eye_y + left_dy)), 2)
+                    else:
+                        self.is_blinking = False  # Reset blink state
+                
+            if not self.is_blinking or current_time < self.blink_start_time:
+                # Draw pupils (black part) with interpolated positions
+                pygame.draw.circle(self.game_surface, self.pupil_color,
+                                (int(left_eye_x + self.current_left_pupil_x), 
+                                 int(left_eye_y + self.current_left_pupil_y)), pupil_size)
+                pygame.draw.circle(self.game_surface, self.pupil_color,
+                                (int(right_eye_x + self.current_right_pupil_x),
+                                 int(right_eye_y + self.current_right_pupil_y)), pupil_size)
             
             # Draw eyebrows
             brow_length = self.eye_size * 1.2
@@ -1188,6 +1213,14 @@ class WormGame:
         self.expression_time = time.time()
         self.expression_hold_time = time.time() + (2.0 + magnitude * 2.0)  # Reduced base hold time
         self.current_expression_speed = self.base_expression_speed * (1.0 + magnitude * 2.0)  # Speed up with magnitude
+        
+        # Trigger blink on significant expression changes with random delay
+        if abs(magnitude) > 0.5:
+            current_time = time.time()
+            delay = random.uniform(0.0, 0.15)  # Random delay up to 0.15 seconds
+            self.is_blinking = True
+            self.blink_start_time = current_time + delay
+            self.blink_end_time = self.blink_start_time + self.blink_duration
 
 class WormAgent:
     def __init__(self, state_size, action_size):
