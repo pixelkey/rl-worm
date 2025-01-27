@@ -163,20 +163,20 @@ class WormGame:
         self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 100.0
+        self.REWARD_FOOD_BASE = 500.0
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 50.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
         self.REWARD_EXPLORATION = 5.0
         
         # Penalties
-        self.PENALTY_WALL = -200.0
-        self.PENALTY_WALL_STAY = -30.0
-        self.wall_stay_scale = 1.0  # Increased from 0.5 for stronger wall stay penalty
+        self.PENALTY_WALL = -10.0  # Re-enable wall collision penalty
+        self.PENALTY_WALL_STAY = -5.0  # Re-enable wall stay penalty
+        self.wall_stay_scale = 1.0  # Re-enable wall stay scaling
         self.PENALTY_SHARP_TURN = -2.0
         self.PENALTY_DIRECTION_CHANGE = -0.8
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -20.0  # Increased from -5.0 to create better gradient
+        self.PENALTY_DANGER_ZONE = -2.0  # Re-enable danger zone penalty
         self.PENALTY_STARVATION_BASE = -1.5
         
         # Generate rocky walls once at initialization
@@ -471,12 +471,12 @@ class WormGame:
         if wall_dist < self.danger_zone_distance:
             # Exponential scaling of penalty based on proximity
             danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2
-            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor  # Keep it negative
-            reward += danger_penalty  # Add the negative penalty
+            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
+            reward += danger_penalty
             
-            # Increment wall stay counter even in danger zone
+            # Increment wall stay counter in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
-                self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment  # Remove cap
+                self.wall_stay_count += self.wall_stay_increment
                 # Exponential penalty growth
                 stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
                 reward += stay_penalty
@@ -484,39 +484,34 @@ class WormGame:
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
         else:
-            # Simply decay wall stay counter when away from danger zone
-            # No positive reward for moving away - this removes the perverse incentive
+            # Decay wall stay counter when away from walls
             self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)
         
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
-            reward += self.PENALTY_WALL  # Add the negative penalty
-            self.wall_stay_count = self.wall_stay_count + self.wall_collision_increment  # Remove cap
-            stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
-            reward += stay_penalty  # Add the negative penalty
-            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
-            # Greatly reduced and randomized bounce effect
-            # Instead of perfect reflection, add a random angle change
-            bounce_strength = 0.3  # Reduced from 1.0 (perfect reflection)
-            random_angle = random.uniform(-math.pi/2, math.pi/2)  # Random angle between -90 and +90 degrees
+            # Bounce off walls by reversing velocity components
+            if new_head_x - self.head_size < 0:  # Left wall
+                new_head_x = self.head_size + abs(new_head_x - self.head_size)
+                dx = -dx * 0.5  # Reduce bounce velocity
+            elif new_head_x + self.head_size > self.width:  # Right wall
+                new_head_x = self.width - self.head_size - abs(new_head_x + self.head_size - self.width)
+                dx = -dx * 0.5
             
-            if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
-                # Horizontal collision - mix between reflection and random
-                reflected_angle = math.pi - self.angle
-                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
-            else:
-                # Vertical collision - mix between reflection and random
-                reflected_angle = -self.angle
-                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
+            if new_head_y - self.head_size < 0:  # Top wall
+                new_head_y = self.head_size + abs(new_head_y - self.head_size)
+                dy = -dy * 0.5
+            elif new_head_y + self.head_size > self.height:  # Bottom wall
+                new_head_y = self.height - self.head_size - abs(new_head_y + self.head_size - self.height)
+                dy = -dy * 0.5
             
-            # Add extra randomness to speed after collision
-            self.speed = max(1.0, self.speed * random.uniform(0.5, 0.8))  # Reduce speed by 20-50%
+            # Update angle after bounce
+            if dx != 0 or dy != 0:
+                self.angle = math.atan2(dy, dx)
             
-            # Constrain position
-            new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
-            new_head_y = np.clip(new_head_y, self.head_size, self.height - self.head_size)
+            self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment
+            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL})"
         
         # Update position
         self.x = new_head_x
@@ -1262,7 +1257,7 @@ analytics = WormAnalytics()
 # Episode tracking
 episode = 0
 steps_in_episode = 0
-MAX_STEPS = 2000
+MAX_STEPS = 6000
 positions_history = []
 
 # Movement tracking
