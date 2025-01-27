@@ -163,21 +163,21 @@ class WormGame:
         self.wall_stay_exp_base = 1.15  # Back to original value
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 500.0
+        self.REWARD_FOOD_BASE = 100.0  # Reduced from 500.0 to be more balanced with penalties
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
-        self.REWARD_GROWTH = 100.0
+        self.REWARD_GROWTH = 50.0  # Reduced from 100.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
-        self.REWARD_EXPLORATION = 5.0  # Reduced from 8.0 to better balance with direction changes
+        self.REWARD_EXPLORATION = 5.0  # Kept same to encourage movement
         
         # Penalties
-        self.PENALTY_WALL = -100.0
-        self.PENALTY_WALL_STAY = -15.0
+        self.PENALTY_WALL = -200.0  # Increased from -100.0 to be more significant
+        self.PENALTY_WALL_STAY = -30.0  # Doubled from -15.0
         self.wall_stay_scale = 0.5
-        self.PENALTY_SHARP_TURN = -2.0  # Increased to discourage very sharp turns
-        self.PENALTY_DIRECTION_CHANGE = -0.8  # Increased back to original to maintain movement consistency
+        self.PENALTY_SHARP_TURN = -2.0
+        self.PENALTY_DIRECTION_CHANGE = -0.8
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -2.5
-        self.PENALTY_STARVATION_BASE = -1.0  # Increased to maintain better urgency for food
+        self.PENALTY_DANGER_ZONE = -5.0  # Doubled from -2.5 to make walls more repulsive
+        self.PENALTY_STARVATION_BASE = -1.5  # Increased from -1.0 to maintain urgency
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -471,14 +471,14 @@ class WormGame:
         if wall_dist < self.danger_zone_distance:
             # Exponential scaling of penalty based on proximity
             danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2
-            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
-            reward += danger_penalty
+            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor  # Keep it negative
+            reward += danger_penalty  # Add the negative penalty
             
             # Increment wall stay counter even in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
                 self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)
-                stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))
-                reward += stay_penalty
+                stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))  # Keep it negative
+                reward += stay_penalty  # Add the negative penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
@@ -490,10 +490,10 @@ class WormGame:
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
-            reward += self.PENALTY_WALL
+            reward += self.PENALTY_WALL  # Add the negative penalty
             self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)
-            stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))
-            reward += stay_penalty
+            stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))  # Keep it negative
+            reward += stay_penalty  # Add the negative penalty
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
             # Greatly reduced and randomized bounce effect
