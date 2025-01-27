@@ -163,20 +163,20 @@ class WormGame:
         self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 100.0
+        self.REWARD_FOOD_BASE = 100.0  # Increased to make food more rewarding
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 50.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
         self.REWARD_EXPLORATION = 5.0
         
         # Penalties
-        self.PENALTY_WALL = -50.0  # Re-enable wall collision penalty
-        self.PENALTY_WALL_STAY = -20.0  # Re-enable wall stay penalty
-        self.wall_stay_scale = 2.0  # Re-enable wall stay scaling
-        self.PENALTY_SHARP_TURN = -0.5
-        self.PENALTY_DIRECTION_CHANGE = -0.4
+        self.PENALTY_WALL = -50.0  # Keep strong wall collision penalty
+        self.PENALTY_WALL_STAY = -20.0  # Keep strong wall stay penalty
+        self.wall_stay_scale = 2.0  # Keep strong scaling
+        self.PENALTY_SHARP_TURN = -0.1  # Reduced to be less punishing for exploration
+        self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -2.0  # Re-enable danger zone penalty
+        self.PENALTY_DANGER_ZONE = -2.0  # Keep as is
         self.PENALTY_STARVATION_BASE = -1.5
         
         # Generate rocky walls once at initialization
