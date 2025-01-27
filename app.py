@@ -107,8 +107,12 @@ class WormGame:
         self.max_convergence = 0.4  # Maximum inward convergence (0 to 1)
         self.is_blinking = False
         self.blink_end_time = 0
-        self.blink_start_time = 0  # When to start the blink
-        self.blink_duration = 0.1  # Blink duration in seconds
+        self.blink_start_time = 0
+        self.blink_duration = 0.3  # Increased for smoother animation
+        self.next_natural_blink = time.time() + random.uniform(3.0, 6.0)
+        self.blink_state = 0.0  # 0.0 is eyes open, 1.0 is eyes closed
+        self.min_time_between_blinks = 2.0  # Minimum seconds between blinks
+        self.last_blink_end_time = 0  # Track when the last blink ended
         
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
@@ -887,6 +891,9 @@ class WormGame:
             pygame.draw.circle(self.game_surface, self.eye_color,
                             (int(right_eye_x), int(right_eye_y)), self.eye_size)
             
+            # Calculate pupil size
+            pupil_size = self.eye_size // 2
+            
             # Find nearest plant
             nearest_plant = None
             min_dist = float('inf')
@@ -907,7 +914,6 @@ class WormGame:
             
             # Adjust pupil positions based on nearest plant and expression
             pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
-            pupil_size = self.eye_size // 2
             
             # Calculate target pupil positions - start at center with expression offset
             target_left_x = 0
@@ -958,28 +964,110 @@ class WormGame:
             self.current_right_pupil_x += (target_right_x - self.current_right_pupil_x) * self.pupil_move_speed
             self.current_right_pupil_y += (target_right_y - self.current_right_pupil_y) * self.pupil_move_speed
             
-            # Check if blinking
+            # Get current time for blinking
             current_time = time.time()
-            if self.is_blinking:
-                if current_time >= self.blink_start_time:
-                    if current_time < self.blink_end_time:
-                        # Calculate rotated blink line endpoints
-                        blink_length = self.eye_size
-                        # Left eye blink
-                        left_dx = math.cos(face_angle) * blink_length
-                        left_dy = math.sin(face_angle) * blink_length
-                        pygame.draw.line(self.game_surface, self.pupil_color,
-                                    (int(left_eye_x - left_dx), int(left_eye_y - left_dy)),
-                                    (int(left_eye_x + left_dx), int(left_eye_y + left_dy)), 2)
-                        # Right eye blink
-                        pygame.draw.line(self.game_surface, self.pupil_color,
-                                    (int(right_eye_x - left_dx), int(right_eye_y - left_dy)),
-                                    (int(right_eye_x + left_dx), int(right_eye_y + left_dy)), 2)
+            
+            # Check for natural blink - only if not already blinking and enough time has passed
+            if (current_time >= self.next_natural_blink and not self.is_blinking and 
+                current_time >= self.last_blink_end_time + self.min_time_between_blinks):
+                self.is_blinking = True
+                self.blink_start_time = current_time
+                self.blink_end_time = current_time + self.blink_duration
+                self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
+            
+            # Handle blinking animation
+            if self.is_blinking and current_time >= self.blink_start_time:
+                if current_time < self.blink_end_time:
+                    # Calculate blink state (0.0 to 1.0 and back)
+                    blink_progress = (current_time - self.blink_start_time) / self.blink_duration
+                    if blink_progress < 0.5:
+                        self.blink_state = blink_progress * 2  # 0.0 to 1.0
                     else:
-                        self.is_blinking = False  # Reset blink state
-                
-            if not self.is_blinking or current_time < self.blink_start_time:
-                # Draw pupils (black part) with interpolated positions
+                        self.blink_state = 2.0 - (blink_progress * 2)  # 1.0 to 0.0
+                    
+                    # Draw eyelids for each eye
+                    for eye_x, eye_y in [(left_eye_x, left_eye_y), (right_eye_x, right_eye_y)]:
+                        # Start eyelids from outer edges with increased coverage
+                        edge_offset = self.eye_size * 1.2  # Reduced from 1.5 to 1.2
+                        eyelid_width = self.eye_size * 1.1  # Reduced from 1.5 to 1.1
+                        
+                        # Calculate the full distance each eyelid needs to travel
+                        full_travel = edge_offset * 2  # Distance from top to bottom
+                        lid_progress = self.blink_state * full_travel
+                        
+                        # Upper eyelid starts at top and moves down
+                        upper_start = (
+                            eye_x + (0 * math.cos(face_angle) - edge_offset * math.sin(face_angle)),
+                            eye_y + (0 * math.sin(face_angle) + edge_offset * math.cos(face_angle))
+                        )
+                        
+                        # Lower eyelid starts at bottom and moves up
+                        lower_start = (
+                            eye_x + (0 * math.cos(face_angle) + edge_offset * math.sin(face_angle)),
+                            eye_y + (0 * math.sin(face_angle) - edge_offset * math.cos(face_angle))
+                        )
+                        
+                        # Calculate eyelid positions based on progress
+                        upper_pos = (
+                            upper_start[0] - (0 * math.cos(face_angle) - lid_progress * math.sin(face_angle)),
+                            upper_start[1] - (0 * math.sin(face_angle) + lid_progress * math.cos(face_angle))
+                        )
+                        
+                        lower_pos = (
+                            lower_start[0] - (0 * math.cos(face_angle) + lid_progress * math.sin(face_angle)),
+                            lower_start[1] - (0 * math.sin(face_angle) - lid_progress * math.cos(face_angle))
+                        )
+                        
+                        # Create eyelid shapes
+                        upper_left = (
+                            upper_pos[0] - (math.cos(face_angle) * eyelid_width),
+                            upper_pos[1] - (math.sin(face_angle) * eyelid_width)
+                        )
+                        upper_right = (
+                            upper_pos[0] + (math.cos(face_angle) * eyelid_width),
+                            upper_pos[1] + (math.sin(face_angle) * eyelid_width)
+                        )
+                        
+                        lower_left = (
+                            lower_pos[0] - (math.cos(face_angle) * eyelid_width),
+                            lower_pos[1] - (math.sin(face_angle) * eyelid_width)
+                        )
+                        lower_right = (
+                            lower_pos[0] + (math.cos(face_angle) * eyelid_width),
+                            lower_pos[1] + (math.sin(face_angle) * eyelid_width)
+                        )
+                        
+                        # Draw eyelids
+                        # Upper eyelid (fills from top edge down)
+                        pygame.draw.polygon(self.game_surface, self.head_color, [
+                            upper_left,
+                            upper_right,
+                            upper_start,
+                            (upper_start[0] - (math.cos(face_angle) * eyelid_width * 2), upper_start[1] - (math.sin(face_angle) * eyelid_width * 2))
+                        ])
+                        
+                        # Lower eyelid (fills from bottom edge up)
+                        pygame.draw.polygon(self.game_surface, self.head_color, [
+                            lower_left,
+                            lower_right,
+                            lower_start,
+                            (lower_start[0] - (math.cos(face_angle) * eyelid_width * 2), lower_start[1] - (math.sin(face_angle) * eyelid_width * 2))
+                        ])
+                    
+                    # Draw pupils if eyes aren't fully closed
+                    if self.blink_state < 0.9:  # Hide pupils a bit earlier in the blink
+                        pygame.draw.circle(self.game_surface, self.pupil_color,
+                                        (int(left_eye_x + self.current_left_pupil_x), 
+                                         int(left_eye_y + self.current_left_pupil_y)), pupil_size)
+                        pygame.draw.circle(self.game_surface, self.pupil_color,
+                                        (int(right_eye_x + self.current_right_pupil_x),
+                                         int(right_eye_y + self.current_right_pupil_y)), pupil_size)
+                else:
+                    self.is_blinking = False
+                    self.blink_state = 0.0
+                    self.last_blink_end_time = current_time  # Record when the blink ended
+            else:
+                # Draw regular pupils when not blinking
                 pygame.draw.circle(self.game_surface, self.pupil_color,
                                 (int(left_eye_x + self.current_left_pupil_x), 
                                  int(left_eye_y + self.current_left_pupil_y)), pupil_size)
@@ -1211,16 +1299,18 @@ class WormGame:
         """Set the target expression and magnitude"""
         self.target_expression = target
         self.expression_time = time.time()
-        self.expression_hold_time = time.time() + (2.0 + magnitude * 2.0)  # Reduced base hold time
-        self.current_expression_speed = self.base_expression_speed * (1.0 + magnitude * 2.0)  # Speed up with magnitude
+        self.expression_hold_time = time.time() + (2.0 + magnitude * 2.0)
+        self.current_expression_speed = self.base_expression_speed * (1.0 + magnitude * 2.0)
         
-        # Trigger blink on significant expression changes with random delay
-        if abs(magnitude) > 0.5:
-            current_time = time.time()
+        # Only trigger blink if not already blinking and enough time has passed since last blink
+        current_time = time.time()
+        if (abs(magnitude) > 0.5 and not self.is_blinking and 
+            current_time >= self.last_blink_end_time + self.min_time_between_blinks):
             delay = random.uniform(0.0, 0.15)  # Random delay up to 0.15 seconds
             self.is_blinking = True
             self.blink_start_time = current_time + delay
             self.blink_end_time = self.blink_start_time + self.blink_duration
+            self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
 
 class WormAgent:
     def __init__(self, state_size, action_size):
