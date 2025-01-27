@@ -988,8 +988,8 @@ class WormGame:
                     # Draw eyelids for each eye
                     for eye_x, eye_y in [(left_eye_x, left_eye_y), (right_eye_x, right_eye_y)]:
                         # Start eyelids from outer edges with increased coverage
-                        edge_offset = self.eye_size * 1.2  # Reduced from 1.5 to 1.2
-                        eyelid_width = self.eye_size * 1.1  # Reduced from 1.5 to 1.1
+                        edge_offset = self.eye_size * 1.2  # Keep the same edge offset
+                        eyelid_width = self.eye_size * 1.2  # Increased from 1.1 to 1.25 for better edge coverage
                         
                         # Calculate the full distance each eyelid needs to travel
                         full_travel = edge_offset * 2  # Distance from top to bottom
