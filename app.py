@@ -597,60 +597,38 @@ class WormGame:
         # Store the last reward for debugging
         self.last_reward = reward
         
-        # Update reward window with only meaningful rewards
-        if abs(reward) > 1.0:  # Only track significant rewards
-            self.reward_window.append(reward)
-            if len(self.reward_window) > self.reward_window_size:
-                self.reward_window.pop(0)
+        # Track all rewards
+        self.reward_window.append(reward)
+        if len(self.reward_window) > self.reward_window_size:
+            self.reward_window.pop(0)
         
         # Calculate emotional state from reward window
         if self.reward_window:
-            # Get the most recent rewards (last 10)
-            recent_window = self.reward_window[-10:]
+            # Get the most recent rewards (last 30 steps)
+            window_size = 30  # Explicit window size for expression calculation
+            recent_window = self.reward_window[-window_size:] if len(self.reward_window) > window_size else self.reward_window
             
-            # Calculate separate means for positive and negative rewards
-            positive_rewards = [r for r in recent_window if r > 0]
-            negative_rewards = [r for r in recent_window if r < 0]
+            # Calculate mean of rewards
+            mean_reward = np.mean(recent_window)
             
-            # Calculate positive and negative scores
-            pos_score = np.mean(positive_rewards) / 500.0 if positive_rewards else 0  # Scale down large food rewards
-            neg_score = np.mean(negative_rewards) / -15.0 if negative_rewards else 0  # Scale wall collisions to -1
+            # Find the maximum magnitude reward for normalization
+            max_magnitude = max(abs(max(recent_window)), abs(min(recent_window)))
             
-            # Combine scores with recency bias
-            pos_weight = len(positive_rewards) / (len(recent_window) + 1e-6)
-            neg_weight = len(negative_rewards) / (len(recent_window) + 1e-6)
+            # Normalize to [-1, 1] range
+            expression_target = mean_reward / max_magnitude if max_magnitude > 0 else 0
+            expression_magnitude = abs(expression_target)  # Use normalized value for magnitude
             
-            # Calculate z-score as weighted combination
-            z_score = pos_score * pos_weight + neg_score * neg_weight
+            # Amplify the magnitude to make expressions more pronounced
+            expression_magnitude = min(1.0, expression_magnitude * 2.0)  # Double the magnitude but cap at 1.0
             
-            # Smooth the transition
-            new_target = np.clip(z_score, -1, 1)
+            # Set the expression with the calculated target and magnitude
+            self.set_expression(expression_target, expression_magnitude)
             
-            # Only trigger expression change if significant and not too frequent
-            current_time = time.time()
-            if not hasattr(self, 'last_expression_change'):
-                self.last_expression_change = 0
-                
-            change_magnitude = abs(new_target - self.expression)
-            time_since_last_change = current_time - self.last_expression_change
-            
-            if change_magnitude > 0.15 and time_since_last_change > 2.0:
-                # Hold time increases with magnitude (4 to 6 seconds)
-                hold_duration = 4.0 + change_magnitude * 2.0
-                self.expression_hold_time = current_time + hold_duration
-                # Slower speed for bigger changes
-                self.current_expression_speed = self.base_expression_speed / (1.0 + change_magnitude * 1.5)
-                
-                self.last_expression_change = current_time
-            else:
-                # Reset to default speed for small changes
-                self.current_expression_speed = self.base_expression_speed
-                self.expression_hold_time = 0
-            
-            self.target_expression = new_target
-        else:
-            # No meaningful rewards yet, stay neutral
-            self.target_expression = 0.0
+            # Debug info
+            if abs(expression_target) > 0.1:  # Only print significant changes
+                print(f"Expression: target={expression_target:.2f}, magnitude={expression_magnitude:.2f}")
+                print(f"Recent rewards mean={mean_reward:.2f}, max_magnitude={max_magnitude:.2f}")
+                print(f"Using all {len(recent_window)} rewards from window")
         
         # Update previous action
         self.prev_action = action
@@ -745,16 +723,24 @@ class WormGame:
         dt = current_time - self.last_time
         self.last_time = current_time
         
-        # Only move towards target if we're past the hold time
-        if current_time > self.expression_hold_time:
+        # Only interpolate if we haven't reached hold time
+        if current_time <= self.expression_hold_time:
             # Smoothly move current expression towards target
             if self.expression != self.target_expression:
                 diff = self.target_expression - self.expression
-                move = self.current_expression_speed * dt  # Amount to move this frame
+                move = self.current_expression_speed * dt * 2.0  # Doubled speed and scale by dt
                 if abs(diff) <= move:
                     self.expression = self.target_expression
                 else:
                     self.expression += move if diff > 0 else -move
+        else:
+            # After hold time, gradually return to neutral
+            if abs(self.expression) > 0.01:  # Small threshold to avoid tiny movements
+                move = self.base_expression_speed * dt
+                if abs(self.expression) <= move:
+                    self.expression = 0
+                else:
+                    self.expression += -move if self.expression > 0 else move
         
         # Draw UI elements in top-right corner
         padding = 5
@@ -1189,8 +1175,8 @@ class WormGame:
         """Set the target expression and magnitude"""
         self.target_expression = target
         self.expression_time = time.time()
-        self.expression_hold_time = time.time() + (4.0 + magnitude * 2.0)
-        self.current_expression_speed = self.base_expression_speed / (1.0 + magnitude * 1.5)
+        self.expression_hold_time = time.time() + (2.0 + magnitude * 2.0)  # Reduced base hold time
+        self.current_expression_speed = self.base_expression_speed * (1.0 + magnitude * 2.0)  # Speed up with magnitude
 
 class WormAgent:
     def __init__(self, state_size, action_size):
