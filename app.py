@@ -116,26 +116,26 @@ class WormGame:
         # Hunger and growth mechanics
         self.max_hunger = 1000
         self.hunger = self.max_hunger
-        self.base_hunger_rate = 0.2  # Doubled from 0.1
+        self.base_hunger_rate = 0.1  # Back to original value
         self.current_hunger_rate = self.base_hunger_rate
-        self.hunger_gain_from_plant = 400  # Increased from 300
-        self.shrink_hunger_threshold = 0.4  # Start shrinking at 40% hunger instead of 50%
-        self.shrink_cooldown = 60  # Frames between shrinks
-        self.shrink_timer = 0  # Counter for shrink cooldown
+        self.hunger_gain_from_plant = 300  # Back to original value
+        self.shrink_hunger_threshold = 0.5  # Back to original value
+        self.shrink_cooldown = 60
+        self.shrink_timer = 0
         
         # Plant management
         self.min_plants = 2
         self.max_plants = 8
         self.target_plants = random.randint(self.min_plants, self.max_plants)
-        self.plant_spawn_chance = 0.02  # 2% chance per frame to spawn a new plant
+        self.plant_spawn_chance = 0.02  # Back to original value
         self.plant_spawn_cooldown = 0
-        self.plant_spawn_cooldown_max = 60  # Minimum frames between spawns
+        self.plant_spawn_cooldown_max = 60
         
         # Plant mechanics
         self.plants = []
-        self.base_plant_spawn_chance = 0.01  # Reduced from 0.02
+        self.base_plant_spawn_chance = 0.02  # Back to original value
         self.current_plant_spawn_chance = self.base_plant_spawn_chance
-        self.base_max_plants = 3  # Reduced from 5
+        self.base_max_plants = 5  # Back to original value
         self.current_max_plants = self.base_max_plants
         
         # Colors
@@ -157,26 +157,26 @@ class WormGame:
         self.wall_stay_count = 0
         self.danger_zone_distance = self.head_size * 1.8
         self.danger_zone_start_ratio = 0.9
-        self.wall_stay_increment = 0.4  # Doubled from 0.2 for faster penalty buildup
-        self.wall_collision_increment = 1.0  # Increased from 0.8 for stronger collision impact
-        self.wall_stay_recovery = 0.3  # Reduced from 0.5 to make recovery slower
-        self.wall_stay_exp_base = 1.25  # Increased from 1.15 for faster exponential growth
+        self.wall_stay_increment = 0.3  # Reduced from 0.4
+        self.wall_collision_increment = 0.8  # Back to original value
+        self.wall_stay_recovery = 0.4  # Back to original value
+        self.wall_stay_exp_base = 1.15  # Back to original value
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 1000.0
+        self.REWARD_FOOD_BASE = 500.0  # Reduced from 1000.0 to be more balanced with penalties
         self.REWARD_FOOD_HUNGER_SCALE = 10.0
         self.REWARD_GROWTH = 100.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.8
+        self.REWARD_SMOOTH_MOVEMENT = 2.0  # Increased to encourage smooth movement
         self.REWARD_EXPLORATION = 4.0
         
-        # Wall penalties increased and rebalanced
-        self.PENALTY_WALL = -50.0
-        self.PENALTY_WALL_STAY = -20.0  # Increased from -15.0 for stronger wall stay deterrent
+        # Wall penalties rebalanced
+        self.PENALTY_WALL = -100.0  # Increased to be more significant
+        self.PENALTY_WALL_STAY = -15.0  # Back to original value
         self.PENALTY_SHARP_TURN = -1.5
         self.PENALTY_STARVATION_BASE = -1.5
         self.PENALTY_DIRECTION_CHANGE = -0.8
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -5.0  # Doubled from -2.5 to make danger zone more threatening
+        self.PENALTY_DANGER_ZONE = -2.5  # Back to original value
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
