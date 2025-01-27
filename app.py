@@ -162,21 +162,22 @@ class WormGame:
         self.wall_stay_recovery = 0.1  # Very slow recovery
         self.max_wall_stay_multiplier = 10.0  # Higher maximum multiplier
         
-        # Reward/Penalty constants - all relative to REWARD_FOOD_BASE
-        self.REWARD_FOOD_BASE = 100.0
+        # Reward/Penalty constants
+        self.REWARD_FOOD_BASE = 100.0  # Increased to make food more rewarding
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 50.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
         self.REWARD_EXPLORATION = 5.0
         self.REWARD_CENTER = 20.0  # New reward for being in center
         
-        # Penalties - much more severe
-        self.PENALTY_WALL = -500.0  # 5x food reward
-        self.PENALTY_WALL_STAY = -100.0  # Base wall stay penalty
-        self.PENALTY_DANGER_ZONE = -80.0  # Stronger danger zone penalty
-        self.PENALTY_SHARP_TURN = -2.0
-        self.PENALTY_DIRECTION_CHANGE = -0.8
+        # Penalties
+        self.PENALTY_WALL = -50.0  # Keep strong wall collision penalty
+        self.PENALTY_WALL_STAY = -20.0  # Keep strong wall stay penalty
+        self.wall_stay_scale = 2.0  # Keep strong scaling
+        self.PENALTY_SHARP_TURN = -0.1  # Reduced to be less punishing for exploration
+        self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
         self.PENALTY_SHRINK = -25.0
+        self.PENALTY_DANGER_ZONE = -2.0  # Keep as is
         self.PENALTY_STARVATION_BASE = -1.5
         
         # Center zone definition
@@ -472,74 +473,49 @@ class WormGame:
         
         # Apply danger zone penalty before actual collision
         if wall_dist < self.danger_zone_distance:
-            # Linear scaling of penalty based on proximity
-            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance))
+            # Exponential scaling of penalty based on proximity
+            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2
             danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
             reward += danger_penalty
             
-            # Increment wall stay counter even in danger zone
+            # Increment wall stay counter in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
-                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 
-                                         self.max_wall_stay_multiplier)
-                # Linear penalty growth with cap
-                stay_penalty = self.PENALTY_WALL_STAY * self.wall_stay_count
+                self.wall_stay_count += self.wall_stay_increment
+                # Exponential penalty growth
+                stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
                 reward += stay_penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
         else:
-            # Decay wall stay counter when away from danger zone
+            # Decay wall stay counter when away from walls
             self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)
         
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
-            reward += self.PENALTY_WALL
-            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment,
-                                     self.max_wall_stay_multiplier)
-            # Linear penalty growth with cap
-            stay_penalty = self.PENALTY_WALL_STAY * self.wall_stay_count
-            reward += stay_penalty
-            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
-            # More chaotic bounce mechanics
-            bounce_strength = random.uniform(0.05, 0.2)  # Very weak bounce
-            random_angle = random.uniform(-math.pi, math.pi)  # Completely random direction
+            # Bounce off walls by reversing velocity components
+            if new_head_x - self.head_size < 0:  # Left wall
+                new_head_x = self.head_size + abs(new_head_x - self.head_size)
+                dx = -dx * 0.5  # Reduce bounce velocity
+            elif new_head_x + self.head_size > self.width:  # Right wall
+                new_head_x = self.width - self.head_size - abs(new_head_x + self.head_size - self.width)
+                dx = -dx * 0.5
             
-            # Add significant speed penalty
-            self.speed = max(1.0, self.speed * random.uniform(0.2, 0.4))  # Reduce speed by 60-80%
+            if new_head_y - self.head_size < 0:  # Top wall
+                new_head_y = self.head_size + abs(new_head_y - self.head_size)
+                dy = -dy * 0.5
+            elif new_head_y + self.head_size > self.height:  # Bottom wall
+                new_head_y = self.height - self.head_size - abs(new_head_y + self.head_size - self.height)
+                dy = -dy * 0.5
             
-            # Add stronger random displacement after collision
-            jitter = self.head_size * 1.0
-            new_head_x += random.uniform(-jitter, jitter)
-            new_head_y += random.uniform(-jitter, jitter)
+            # Update angle after bounce
+            if dx != 0 or dy != 0:
+                self.angle = math.atan2(dy, dx)
             
-            # Constrain position more aggressively away from walls
-            buffer = self.head_size * 1.5
-            new_head_x = np.clip(new_head_x, buffer, self.width - buffer)
-            new_head_y = np.clip(new_head_y, buffer, self.height - buffer)
-            
-            # Random direction change
-            if random.random() < 0.5:  # 50% chance of complete direction randomization
-                self.angle = random.uniform(0, 2 * math.pi)
-            else:
-                if new_head_x < buffer or new_head_x > self.width - buffer:
-                    reflected_angle = math.pi - self.angle
-                else:
-                    reflected_angle = -self.angle
-                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
-            
-            # More severe speed reduction
-            self.speed = max(1.0, self.speed * random.uniform(0.3, 0.6))  # Reduce speed by 40-70%
-            
-            # Add some random displacement after collision to prevent sticking
-            jitter = self.head_size * 0.5
-            new_head_x += random.uniform(-jitter, jitter)
-            new_head_y += random.uniform(-jitter, jitter)
-            
-            # Constrain position
-            new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
-            new_head_y = np.clip(new_head_y, self.head_size, self.height - self.head_size)
+            self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment
+            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL})"
         
         # Update position
         self.x = new_head_x
@@ -1285,7 +1261,7 @@ analytics = WormAnalytics()
 # Episode tracking
 episode = 0
 steps_in_episode = 0
-MAX_STEPS = 2000
+MAX_STEPS = 6000
 positions_history = []
 
 # Movement tracking
