@@ -99,9 +99,12 @@ class WormGame:
         # Eye properties
         self.eye_size = int(self.head_size * 0.25)
         self.eye_offset = int(self.head_size * 0.3)
-        self.current_pupil_x = 0  # Current pupil x offset
-        self.current_pupil_y = 0  # Current pupil y offset
+        self.current_left_pupil_x = 0  # Current left pupil x offset
+        self.current_left_pupil_y = 0  # Current left pupil y offset
+        self.current_right_pupil_x = 0  # Current right pupil x offset
+        self.current_right_pupil_y = 0  # Current right pupil y offset
         self.pupil_move_speed = 0.15  # Speed of pupil movement (0 to 1, lower is slower)
+        self.max_convergence = 0.4  # Maximum inward convergence (0 to 1)
         
         # Expression properties
         self.expression = 0  # -1 for frown, 0 for neutral, 1 for smile
@@ -905,29 +908,50 @@ class WormGame:
             pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
             pupil_size = self.eye_size // 2
             
-            # Calculate target pupil position
-            target_x = 0
-            target_y = pupil_y_offset  # Start with expression offset
+            # Calculate target pupil positions
+            target_left_x = 0
+            target_left_y = pupil_y_offset
+            target_right_x = 0
+            target_right_y = pupil_y_offset
             
             if nearest_plant:
-                # Calculate angle to plant
-                plant_angle = math.atan2(plant_y - y, plant_x - x)
+                # Calculate distance-based convergence (closer = more convergence)
+                convergence_distance = self.head_size * 8  # Distance at which convergence starts
+                convergence = max(0, 1 - (min_dist / convergence_distance))
+                convergence *= self.max_convergence  # Scale by max convergence factor
+                
+                # Calculate angles from each eye to plant
+                left_dx = plant_x - left_eye_x
+                left_dy = plant_y - left_eye_y
+                right_dx = plant_x - right_eye_x
+                right_dy = plant_y - right_eye_y
+                
+                left_angle = math.atan2(left_dy, left_dx)
+                right_angle = math.atan2(right_dy, right_dx)
+                
                 # Limit pupil movement to 70% of eye size
                 max_pupil_offset = self.eye_size * 0.7
-                target_x = math.cos(plant_angle) * max_pupil_offset
-                target_y += math.sin(plant_angle) * max_pupil_offset
+                
+                # Calculate target positions with convergence
+                target_left_x = math.cos(left_angle) * max_pupil_offset + (convergence * self.eye_size)
+                target_left_y = math.sin(left_angle) * max_pupil_offset + pupil_y_offset
+                
+                target_right_x = math.cos(right_angle) * max_pupil_offset - (convergence * self.eye_size)
+                target_right_y = math.sin(right_angle) * max_pupil_offset + pupil_y_offset
             
-            # Smoothly interpolate current position towards target
-            self.current_pupil_x += (target_x - self.current_pupil_x) * self.pupil_move_speed
-            self.current_pupil_y += (target_y - self.current_pupil_y) * self.pupil_move_speed
+            # Smoothly interpolate current positions towards targets
+            self.current_left_pupil_x += (target_left_x - self.current_left_pupil_x) * self.pupil_move_speed
+            self.current_left_pupil_y += (target_left_y - self.current_left_pupil_y) * self.pupil_move_speed
+            self.current_right_pupil_x += (target_right_x - self.current_right_pupil_x) * self.pupil_move_speed
+            self.current_right_pupil_y += (target_right_y - self.current_right_pupil_y) * self.pupil_move_speed
             
-            # Draw pupils (black part) with interpolated position
+            # Draw pupils (black part) with interpolated positions
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(left_eye_x + self.current_pupil_x), 
-                             int(left_eye_y + self.current_pupil_y)), pupil_size)
+                            (int(left_eye_x + self.current_left_pupil_x), 
+                             int(left_eye_y + self.current_left_pupil_y)), pupil_size)
             pygame.draw.circle(self.game_surface, self.pupil_color,
-                            (int(right_eye_x + self.current_pupil_x),
-                             int(right_eye_y + self.current_pupil_y)), pupil_size)
+                            (int(right_eye_x + self.current_right_pupil_x),
+                             int(right_eye_y + self.current_right_pupil_y)), pupil_size)
             
             # Draw eyebrows
             brow_length = self.eye_size * 1.2
