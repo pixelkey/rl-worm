@@ -163,20 +163,21 @@ class WormGame:
         self.wall_stay_exp_base = 1.15  # Back to original value
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 500.0  # Reduced from 1000.0 to be more balanced with penalties
-        self.REWARD_FOOD_HUNGER_SCALE = 10.0
+        self.REWARD_FOOD_BASE = 500.0
+        self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 100.0
-        self.REWARD_SMOOTH_MOVEMENT = 2.0  # Increased to encourage smooth movement
-        self.REWARD_EXPLORATION = 4.0
+        self.REWARD_SMOOTH_MOVEMENT = 2.0
+        self.REWARD_EXPLORATION = 5.0  # Reduced from 8.0 to better balance with direction changes
         
-        # Wall penalties rebalanced
-        self.PENALTY_WALL = -100.0  # Increased to be more significant
-        self.PENALTY_WALL_STAY = -15.0  # Back to original value
-        self.PENALTY_SHARP_TURN = -1.5
-        self.PENALTY_STARVATION_BASE = -1.5
-        self.PENALTY_DIRECTION_CHANGE = -0.8
+        # Penalties
+        self.PENALTY_WALL = -100.0
+        self.PENALTY_WALL_STAY = -15.0
+        self.wall_stay_scale = 0.5
+        self.PENALTY_SHARP_TURN = -2.0  # Increased to discourage very sharp turns
+        self.PENALTY_DIRECTION_CHANGE = -0.8  # Increased back to original to maintain movement consistency
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -2.5  # Back to original value
+        self.PENALTY_DANGER_ZONE = -2.5
+        self.PENALTY_STARVATION_BASE = -1.0  # Increased to maintain better urgency for food
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -476,7 +477,7 @@ class WormGame:
             # Increment wall stay counter even in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
                 self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)
-                stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
+                stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))
                 reward += stay_penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
@@ -491,7 +492,7 @@ class WormGame:
             wall_collision = True
             reward += self.PENALTY_WALL
             self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)
-            stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
+            stay_penalty = self.PENALTY_WALL_STAY * (1 + self.wall_stay_scale * min(self.wall_stay_count, 10))
             reward += stay_penalty
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
@@ -566,10 +567,11 @@ class WormGame:
         # Calculate reward using Maslow's hierarchy
         if ate_plant:
             # Physiological needs (survival)
-            hunger_ratio = 1 - (self.hunger / self.max_hunger)
-            base_reward = self.REWARD_FOOD_BASE * (1 + self.REWARD_FOOD_HUNGER_SCALE * hunger_ratio**2)
+            hunger_ratio = self.hunger / self.max_hunger
+            hunger_bonus = math.log(1 + self.REWARD_FOOD_HUNGER_SCALE * hunger_ratio**2)
+            base_reward = self.REWARD_FOOD_BASE * (1 + hunger_bonus)
             reward += base_reward
-            self.last_reward_source = f"Food (hunger: {hunger_ratio:.2f}, reward: {base_reward:.1f})"
+            self.last_reward_source = f"Food ({base_reward:.1f})"
             
             # Growth rewards when healthy
             if self.hunger < self.max_hunger * 0.5:
@@ -579,7 +581,8 @@ class WormGame:
         # Starvation penalties
         hunger_ratio = self.hunger / self.max_hunger
         if hunger_ratio < 0.5:  # Apply penalty when hungry (low hunger ratio)
-            starvation_penalty = self.PENALTY_STARVATION_BASE * ((0.5 - hunger_ratio) / 0.5) ** 2
+            starvation_factor = ((hunger_ratio - 0.5) / 0.5) ** 2
+            starvation_penalty = self.PENALTY_STARVATION_BASE * starvation_factor
             reward += starvation_penalty
             if starvation_penalty < -0.1:  # Only update source if penalty is significant
                 self.last_reward_source = f"Starvation (hunger ratio: {hunger_ratio:.2f})"
