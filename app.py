@@ -155,29 +155,32 @@ class WormGame:
         
         # Wall collision tracking
         self.wall_stay_count = 0
-        self.danger_zone_distance = self.head_size * 1.8
-        self.danger_zone_start_ratio = 0.9
-        self.wall_stay_increment = 0.3
-        self.wall_collision_increment = 0.8
-        self.wall_stay_recovery = 0.4
-        self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
+        self.danger_zone_distance = self.head_size * 4.0  # Much larger danger zone
+        self.danger_zone_start_ratio = 0.98  # Start penalties very early
+        self.wall_stay_increment = 1.0  # Faster penalty accumulation
+        self.wall_collision_increment = 2.0  # Severe collision penalty growth
+        self.wall_stay_recovery = 0.1  # Very slow recovery
+        self.max_wall_stay_multiplier = 10.0  # Higher maximum multiplier
         
-        # Reward/Penalty constants
+        # Reward/Penalty constants - all relative to REWARD_FOOD_BASE
         self.REWARD_FOOD_BASE = 100.0
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
         self.REWARD_GROWTH = 50.0
         self.REWARD_SMOOTH_MOVEMENT = 2.0
         self.REWARD_EXPLORATION = 5.0
+        self.REWARD_CENTER = 20.0  # New reward for being in center
         
-        # Penalties
-        self.PENALTY_WALL = -200.0
-        self.PENALTY_WALL_STAY = -30.0
-        self.wall_stay_scale = 1.0  # Increased from 0.5 for stronger wall stay penalty
+        # Penalties - much more severe
+        self.PENALTY_WALL = -500.0  # 5x food reward
+        self.PENALTY_WALL_STAY = -100.0  # Base wall stay penalty
+        self.PENALTY_DANGER_ZONE = -80.0  # Stronger danger zone penalty
         self.PENALTY_SHARP_TURN = -2.0
         self.PENALTY_DIRECTION_CHANGE = -0.8
         self.PENALTY_SHRINK = -25.0
-        self.PENALTY_DANGER_ZONE = -20.0  # Increased from -5.0 to create better gradient
         self.PENALTY_STARVATION_BASE = -1.5
+        
+        # Center zone definition
+        self.center_zone_radius = min(self.width, self.height) * 0.3  # 30% of arena
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -469,50 +472,70 @@ class WormGame:
         
         # Apply danger zone penalty before actual collision
         if wall_dist < self.danger_zone_distance:
-            # Exponential scaling of penalty based on proximity
-            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2
-            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor  # Keep it negative
-            reward += danger_penalty  # Add the negative penalty
+            # Linear scaling of penalty based on proximity
+            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance))
+            danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
+            reward += danger_penalty
             
             # Increment wall stay counter even in danger zone
             if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
-                self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment  # Remove cap
-                # Exponential penalty growth
-                stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
+                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 
+                                         self.max_wall_stay_multiplier)
+                # Linear penalty growth with cap
+                stay_penalty = self.PENALTY_WALL_STAY * self.wall_stay_count
                 reward += stay_penalty
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
             else:
                 self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
         else:
-            # Simply decay wall stay counter when away from danger zone
-            # No positive reward for moving away - this removes the perverse incentive
+            # Decay wall stay counter when away from danger zone
             self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)
         
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
-            reward += self.PENALTY_WALL  # Add the negative penalty
-            self.wall_stay_count = self.wall_stay_count + self.wall_collision_increment  # Remove cap
-            stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 5))
-            reward += stay_penalty  # Add the negative penalty
+            reward += self.PENALTY_WALL
+            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment,
+                                     self.max_wall_stay_multiplier)
+            # Linear penalty growth with cap
+            stay_penalty = self.PENALTY_WALL_STAY * self.wall_stay_count
+            reward += stay_penalty
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
-            # Greatly reduced and randomized bounce effect
-            # Instead of perfect reflection, add a random angle change
-            bounce_strength = 0.3  # Reduced from 1.0 (perfect reflection)
-            random_angle = random.uniform(-math.pi/2, math.pi/2)  # Random angle between -90 and +90 degrees
+            # More chaotic bounce mechanics
+            bounce_strength = random.uniform(0.05, 0.2)  # Very weak bounce
+            random_angle = random.uniform(-math.pi, math.pi)  # Completely random direction
             
-            if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
-                # Horizontal collision - mix between reflection and random
-                reflected_angle = math.pi - self.angle
-                self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
+            # Add significant speed penalty
+            self.speed = max(1.0, self.speed * random.uniform(0.2, 0.4))  # Reduce speed by 60-80%
+            
+            # Add stronger random displacement after collision
+            jitter = self.head_size * 1.0
+            new_head_x += random.uniform(-jitter, jitter)
+            new_head_y += random.uniform(-jitter, jitter)
+            
+            # Constrain position more aggressively away from walls
+            buffer = self.head_size * 1.5
+            new_head_x = np.clip(new_head_x, buffer, self.width - buffer)
+            new_head_y = np.clip(new_head_y, buffer, self.height - buffer)
+            
+            # Random direction change
+            if random.random() < 0.5:  # 50% chance of complete direction randomization
+                self.angle = random.uniform(0, 2 * math.pi)
             else:
-                # Vertical collision - mix between reflection and random
-                reflected_angle = -self.angle
+                if new_head_x < buffer or new_head_x > self.width - buffer:
+                    reflected_angle = math.pi - self.angle
+                else:
+                    reflected_angle = -self.angle
                 self.angle = (reflected_angle * bounce_strength + random_angle * (1 - bounce_strength)) % (2 * math.pi)
             
-            # Add extra randomness to speed after collision
-            self.speed = max(1.0, self.speed * random.uniform(0.5, 0.8))  # Reduce speed by 20-50%
+            # More severe speed reduction
+            self.speed = max(1.0, self.speed * random.uniform(0.3, 0.6))  # Reduce speed by 40-70%
+            
+            # Add some random displacement after collision to prevent sticking
+            jitter = self.head_size * 0.5
+            new_head_x += random.uniform(-jitter, jitter)
+            new_head_y += random.uniform(-jitter, jitter)
             
             # Constrain position
             new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
@@ -521,6 +544,12 @@ class WormGame:
         # Update position
         self.x = new_head_x
         self.y = new_head_y
+        
+        # Reward for being in center zone
+        center_dist = math.sqrt((self.x - self.width/2)**2 + (self.y - self.height/2)**2)
+        if center_dist < self.center_zone_radius:
+            reward += self.REWARD_CENTER
+            self.last_reward_source = f"Center ({self.REWARD_CENTER})"
         
         # Update body segment positions with fixed spacing
         for i in range(1, self.num_segments):
@@ -1145,47 +1174,40 @@ class WormAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=False)  # Disabled verbose
         
-        # Try to load saved model
+        # Try to load model
+        model_dir = os.path.join('models', 'saved')
+        os.makedirs(model_dir, exist_ok=True)
+        model_path = os.path.join(model_dir, 'worm_state.pt')
+        print(f"Attempting to load model from {model_path}")
+        
         try:
-            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-            model_path = os.path.join(model_dir, 'worm_model.pth')
-            print(f"Attempting to load model from {model_path}")
-            
-            if not os.path.exists(model_path):
-                print(f"Model file does not exist at {model_path}")
-                print("No saved model found, starting fresh")
-                return
-                
-            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
-            if checkpoint['state_size'] == state_size:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.epsilon = checkpoint['epsilon']
-                print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
-                
-                # Sync target model with main model after loading
-                self.target_model.load_state_dict(self.model.state_dict())
-            else:
-                print(f"Model has wrong state size: expected {state_size}, got {checkpoint['state_size']}")
-                print("Starting fresh with new model")
+            checkpoint = torch.load(model_path)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.target_model.load_state_dict(checkpoint['target_model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.epsilon = checkpoint['epsilon']
+            print(f"Successfully loaded model. Epsilon: {self.epsilon:.4f}")
         except Exception as e:
-            print(f"Error loading model: {str(e)}")
+            print(f"Error loading model: {e}")
             print("No saved model found, starting fresh")
             
     def _build_model(self):
         """Build the neural network model.
-        Architecture from saved model:
+        Architecture:
         - Input: 14 features
-        - Hidden 1: 128 neurons
-        - Hidden 2: 128 neurons
+        - Hidden 1: 256 neurons
+        - Hidden 2: 256 neurons
+        - Hidden 3: 128 neurons
         - Output: 9 actions
         """
         return nn.Sequential(
-            nn.Linear(self.state_size, 128),  # [14 -> 128]
+            nn.Linear(self.state_size, 256),
             nn.ReLU(),
-            nn.Linear(128, 128),   # [128 -> 128]
+            nn.Linear(256, 256),
             nn.ReLU(),
-            nn.Linear(128, self.action_size)  # [128 -> 9]
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, self.action_size)
         )
     
     def remember(self, state, action, reward, next_state, done):
@@ -1240,10 +1262,11 @@ class WormAgent:
     def save(self, episode):
         torch.save({
             'model_state_dict': self.model.state_dict(),
+            'target_model_state_dict': self.target_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
             'state_size': self.state_size
-        }, f'models/saved/worm_model.pth')
+        }, f'models/saved/worm_state.pt')
         print(f"Saved model state at episode {episode}")
 
 # ML Agent setup

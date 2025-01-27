@@ -96,15 +96,13 @@ class WormAgent:
     
     def _build_model(self):
         return nn.Sequential(
-            nn.Linear(self.state_size, 512),  
+            nn.Linear(self.state_size, 256),
             nn.ReLU(),
-            nn.Dropout(0.1),  
-            nn.Linear(512, 512),  
+            nn.Linear(256, 256),
             nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(512, 256),  
+            nn.Linear(256, 128),
             nn.ReLU(),
-            nn.Linear(256, self.action_size)
+            nn.Linear(128, self.action_size)
         )
     
     def act(self, state):
@@ -168,22 +166,24 @@ class WormAgent:
     
     def save(self, episode):
         # Save only the model weights to prevent pickle security issues
-        model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
+        model_dir = os.path.join('models', 'saved')
         os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, 'worm_model.pth')
+        model_path = os.path.join(model_dir, 'worm_state.pt')
         
         torch.save({
             'model_state_dict': self.model.state_dict(),
+            'target_model_state_dict': self.target_model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
-            'state_size': self.state_size
+            'state_size': self.state_size,
+            'episode': episode
         }, model_path)
         print(f"Saved model state at episode {episode} to {model_path}")
         
     def load(self):
         try:
-            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-            model_path = os.path.join(model_dir, 'worm_model.pth')
+            model_dir = os.path.join('models', 'saved')
+            model_path = os.path.join(model_dir, 'worm_state.pt')
             print(f"Attempting to load model from {model_path}")
             
             if not os.path.exists(model_path):
@@ -194,6 +194,7 @@ class WormAgent:
             checkpoint = torch.load(model_path, map_location=self.device)
             if checkpoint['state_size'] == self.state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
+                self.target_model.load_state_dict(checkpoint['target_model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
                 self.epsilon = checkpoint['epsilon']
                 print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
