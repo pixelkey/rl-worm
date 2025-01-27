@@ -153,6 +153,30 @@ class WormGame:
         self.width = self.game_width
         self.height = self.game_height
         
+        # Wall collision tracking
+        self.wall_stay_count = 0
+        self.danger_zone_distance = self.head_size * 1.8  # Reduced from 2.0 for even more maneuverability
+        self.danger_zone_start_ratio = 0.9  # Increased from 0.85
+        self.wall_stay_increment = 0.2  # Reduced from 0.25
+        self.wall_collision_increment = 0.8  # Reduced from 1.0
+        self.wall_stay_recovery = 0.5  # Increased from 0.4
+        self.wall_stay_exp_base = 1.15  # Reduced from 1.2
+        
+        # Reward/Penalty constants
+        self.REWARD_FOOD_BASE = 1000.0  # Increased from 750.0 to strongly reinforce food collection
+        self.REWARD_FOOD_HUNGER_SCALE = 10.0  # Increased from 8.0 for more urgency
+        self.REWARD_GROWTH = 100.0  # Increased from 75.0 to encourage plant collection
+        self.REWARD_SMOOTH_MOVEMENT = 0.8  # Increased from 0.5 to promote smoother movement
+        self.REWARD_EXPLORATION = 4.0  # Increased from 3.0 for better exploration
+        
+        self.PENALTY_WALL = -35.0  # Reduced from -40.0 since wall avoidance is good
+        self.PENALTY_WALL_STAY = -10.0  # Reduced from -12.0
+        self.PENALTY_SHARP_TURN = -1.5  # Increased from -1.0 to further discourage erratic movement
+        self.PENALTY_STARVATION_BASE = -1.5  # Increased from -1.0 for more urgency
+        self.PENALTY_DIRECTION_CHANGE = -0.8  # Increased from -0.5 to promote smoother paths
+        self.PENALTY_SHRINK = -25.0  # Increased from -20.0
+        self.PENALTY_DANGER_ZONE = -2.5  # Reduced from -3.0
+        
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
         self.wall_color = (70, 70, 70)  # Dark gray
@@ -239,25 +263,6 @@ class WormGame:
         self.right_wall = get_jagged_wall_points((self.width-margin, margin), (self.width-margin, self.height-margin), self.wall_points)
         self.top_wall = get_jagged_wall_points((margin, margin), (self.width-margin, margin), self.wall_points)
         self.bottom_wall = get_jagged_wall_points((margin, self.height-margin), (self.width-margin, self.height-margin), self.wall_points)
-        
-        # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 250.0
-        self.REWARD_FOOD_HUNGER_SCALE = 3.0
-        self.REWARD_GROWTH = 30.0
-        self.REWARD_SMOOTH_MOVEMENT = 0.1
-        self.REWARD_EXPLORATION = 0.5
-        
-        self.PENALTY_WALL = -75.0  # Keep wall hits as very costly
-        self.PENALTY_WALL_STAY = -20.0  # Reduced from -30.0
-        self.PENALTY_SHARP_TURN = -1.0
-        self.PENALTY_STARVATION_BASE = -0.2
-        self.PENALTY_DIRECTION_CHANGE = -0.5
-        self.PENALTY_SHRINK = -20.0
-        self.PENALTY_DANGER_ZONE = -10.0  # New penalty for being too close to walls
-        
-        # Wall collision tracking
-        self.wall_stay_count = 0  # Track consecutive wall stays
-        self.danger_zone_distance = self.head_size * 3  # Distance at which to start applying danger zone penalty
         
         # Initialize worm
         self.reset()
@@ -462,17 +467,28 @@ class WormGame:
         
         # Apply danger zone penalty before actual collision
         if wall_dist < self.danger_zone_distance:
-            # Scale penalty based on how close to wall (closer = bigger penalty)
-            danger_factor = 1.0 - (wall_dist / self.danger_zone_distance)
+            # Exponential scaling of penalty based on proximity
+            danger_factor = (1.0 - (wall_dist / self.danger_zone_distance)) ** 2  # Square for exponential scaling
             danger_penalty = self.PENALTY_DANGER_ZONE * danger_factor
             reward += danger_penalty
-            self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
+            
+            # Increment wall stay counter even in danger zone
+            if wall_dist < self.danger_zone_distance * self.danger_zone_start_ratio:
+                self.wall_stay_count = min(self.wall_stay_count + self.wall_stay_increment, 10)  # Increment by 0.5 instead of 1
+                stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
+                reward += stay_penalty
+                self.last_reward_source = f"Danger Zone ({danger_penalty:.1f}) + Wall Stay ({stay_penalty:.1f})"
+            else:
+                self.last_reward_source = f"Danger Zone ({danger_penalty:.1f})"
         
         if (new_head_x - self.head_size < 0 or new_head_x + self.head_size > self.width or
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             reward += self.PENALTY_WALL
-            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL})"
+            self.wall_stay_count = min(self.wall_stay_count + self.wall_collision_increment, 10)  # Bigger increment on actual collision
+            stay_penalty = self.PENALTY_WALL_STAY * (self.wall_stay_exp_base ** min(self.wall_stay_count, 10))
+            reward += stay_penalty
+            self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
             
             # Add bounce effect
             if new_head_x < self.head_size or new_head_x > self.width - self.head_size:
@@ -483,20 +499,16 @@ class WormGame:
             # Constrain position
             new_head_x = np.clip(new_head_x, self.head_size, self.width - self.head_size)
             new_head_y = np.clip(new_head_y, self.head_size, self.height - self.head_size)
-            
-            # Extra penalty if too close to walls
-            if wall_dist < self.head_size * 2:
-                self.wall_stay_count += 1
-                # Less aggressive exponential growth (1.3 instead of 1.5)
-                stay_penalty = self.PENALTY_WALL_STAY * (1.3 ** min(self.wall_stay_count, 10))
-                reward += stay_penalty
-                if wall_collision:
-                    self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL}) + Wall Stay ({stay_penalty:.1f})"
-                else:
-                    self.last_reward_source = f"Wall Stay ({stay_penalty:.1f})"
         else:
-            # Reset wall stay counter when away from walls
-            self.wall_stay_count = 0
+            # Gradually decrease wall stay counter when away from danger zone
+            if wall_dist > self.danger_zone_distance:
+                self.wall_stay_count = max(0, self.wall_stay_count - self.wall_stay_recovery)  # Slow recovery
+                
+                # Add recovery bonus if moving away from walls
+                if self.wall_stay_count > 0:  # Only if recovering from wall interaction
+                    recovery_bonus = self.REWARD_EXPLORATION * (wall_dist / self.danger_zone_distance)
+                    reward += recovery_bonus
+                    self.last_reward_source = f"Wall Recovery ({recovery_bonus:.1f})"
         
         # Update position
         self.x = new_head_x
@@ -1113,9 +1125,9 @@ class WormAgent:
         self.batch_size = 64  # Much smaller batch size
         self.gamma = 0.99
         self.epsilon = 1.0
-        self.epsilon_min = 0.05  # Slightly higher min exploration
-        self.epsilon_decay = 0.9995  # Much slower decay
-        self.learning_rate = 0.0005  # Slightly lower learning rate
+        self.epsilon_min = 0.1  # Increased from 0.05 for more exploration
+        self.epsilon_decay = 0.9998  # Much slower decay from 0.9995
+        self.learning_rate = 0.0005  # Keep current learning rate
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {self.device}")
         
