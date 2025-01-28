@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from analytics.metrics import WormAnalytics
+from worm_agent import WormAgent  # Import the training version
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -1306,130 +1307,6 @@ class WormGame:
             self.blink_start_time = current_time + delay
             self.blink_end_time = self.blink_start_time + self.blink_duration
             self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
-
-class WormAgent:
-    def __init__(self, state_size, action_size):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=100000)  # Increased memory size
-        self.batch_size = 64  # Much smaller batch size
-        self.gamma = 0.99
-        self.epsilon = 1.0
-        self.epsilon_min = 0.1  # Increased from 0.05 for more exploration
-        self.epsilon_decay = 0.9998  # Much slower decay from 0.9995
-        self.learning_rate = 0.0005  # Keep current learning rate
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {self.device}")
-        
-        if torch.cuda.is_available():
-            print(f"GPU: {torch.cuda.get_device_name(0)}")
-            print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
-        
-        self.model = self._build_model().to(self.device)
-        self.target_model = self._build_model().to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=False)  # Disabled verbose
-        
-        # Try to load saved model
-        try:
-            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-            model_path = os.path.join(model_dir, 'worm_model.pth')
-            print(f"Attempting to load model from {model_path}")
-            
-            if not os.path.exists(model_path):
-                print(f"Model file does not exist at {model_path}")
-                print("No saved model found, starting fresh")
-                return
-                
-            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
-            if checkpoint['state_size'] == state_size:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.epsilon = checkpoint['epsilon']
-                print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
-                
-                # Sync target model with main model after loading
-                self.target_model.load_state_dict(self.model.state_dict())
-            else:
-                print(f"Model has wrong state size: expected {state_size}, got {checkpoint['state_size']}")
-                print("Starting fresh with new model")
-        except Exception as e:
-            print(f"Error loading model: {str(e)}")
-            print("No saved model found, starting fresh")
-            
-    def _build_model(self):
-        """Build the neural network model.
-        Architecture from saved model:
-        - Input: 14 features
-        - Hidden 1: 128 neurons
-        - Hidden 2: 128 neurons
-        - Output: 9 actions
-        """
-        return nn.Sequential(
-            nn.Linear(self.state_size, 128),  # [14 -> 128]
-            nn.ReLU(),
-            nn.Linear(128, 128),   # [128 -> 128]
-            nn.ReLU(),
-            nn.Linear(128, self.action_size)  # [128 -> 9]
-        )
-    
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-    
-    def act(self, state):
-        if random.random() <= self.epsilon:
-            return random.randrange(self.action_size)
-        
-        with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            act_values = self.model(state)
-            return torch.argmax(act_values).item()
-    
-    def train(self):
-        if len(self.memory) < self.batch_size:
-            return
-        
-        # Sample random batch from memory
-        minibatch = random.sample(self.memory, self.batch_size)
-        
-        # Prepare batch data
-        states = torch.FloatTensor([t[0] for t in minibatch]).to(self.device)
-        actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
-        rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
-        next_states = torch.FloatTensor([t[3] for t in minibatch]).to(self.device)
-        dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
-        
-        # Current Q values
-        current_q = self.model(states).gather(1, actions.unsqueeze(1))
-        
-        # Next Q values from target model
-        with torch.no_grad():
-            next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + (1 - dones) * self.gamma * next_q
-        
-        # Compute loss and update model
-        loss = F.mse_loss(current_q.squeeze(), target_q)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-        # Update epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        
-        return loss.item()
-    
-    def update_target_model(self):
-        self.target_model.load_state_dict(self.model.state_dict())
-    
-    def save(self, episode):
-        torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'epsilon': self.epsilon,
-            'state_size': self.state_size
-        }, f'models/saved/worm_model.pth')
-        print(f"Saved model state at episode {episode}")
 
 # ML Agent setup
 STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
