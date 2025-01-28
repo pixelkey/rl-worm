@@ -1113,66 +1113,71 @@ class Plant:
             
         return normalized_value
 
-    def draw(self, surface, worm_x=None, worm_y=None, worm_speed=4.0):
-        """Draw the plant"""
+    def draw(self, surface, worm_x=None, worm_y=None, worm_speed=None, is_target=False):
+        """Draw the plant
+        
+        Args:
+            surface: The pygame surface to draw on
+            worm_x: The worm's x position (optional)
+            worm_y: The worm's y position (optional)
+            worm_speed: The worm's speed (optional)
+            is_target: Whether this plant is being targeted by the worm (optional)
+        """
         if self.state == 'seed':
             self._draw_seed(surface)
-        else:
-            self._draw_plant(surface)
+            return
             
-        # Draw nutrition value indicators
-        if pygame.font.get_init():  # Check if pygame font is initialized
-            small_font = pygame.font.Font(None, int(self.base_size * 0.7))  # Smaller font for labels
-            value_font = pygame.font.Font(None, int(self.base_size * 0.8))  # Slightly larger for values
-            
+        # Draw the plant
+        self._draw_plant(surface)
+        
+        # Draw target indicator if this is the current target
+        if is_target:
+            target_radius = self.base_size * 2
+            target_color = (255, 255, 0)  # Yellow
+            pygame.draw.circle(surface, target_color, (int(self.x), int(self.y)), target_radius, 2)
+        
+        # Only show nutritional values if we have worm position info
+        if worm_x is not None and worm_y is not None and worm_speed is not None:
             # Current nutritional value
             current_value = self.get_nutritional_value()
             current_text = f"Now: {current_value:.1f}"
             
             # Future nutritional value
-            future_value = self.predict_future_value(worm_x, worm_y, worm_speed) if worm_x is not None else current_value
+            future_value = self.predict_future_value(worm_x, worm_y, worm_speed)
             future_text = f"Future: {future_value:.1f}"
             
-            # Color coding based on values
+            # Font setup
+            value_font = pygame.font.Font(None, max(12, int(self.base_size)))
+            
+            # Helper function to convert value to color
             def value_to_color(value):
-                if value >= 1.0:
-                    return (0, 255, 0)  # Green for high value
-                elif value >= 0.5:
-                    return (255, 255, 0)  # Yellow for medium value
-                else:
-                    return (255, 165, 0)  # Orange for low value
+                # Green to red gradient based on value
+                return (int(255 * (1 - value)), int(255 * value), 0)
             
             # Render current value
             current_color = value_to_color(current_value)
             current_surface = value_font.render(current_text, True, current_color)
             current_rect = current_surface.get_rect()
             current_rect.centerx = self.x
-            current_rect.top = self.y + self.base_size  # Place below plant
+            current_rect.top = self.y + self.base_size
             
             # Render future value
             future_color = value_to_color(future_value)
             future_surface = value_font.render(future_text, True, future_color)
             future_rect = future_surface.get_rect()
             future_rect.centerx = self.x
-            future_rect.top = current_rect.bottom + 2  # Place below current value
+            future_rect.top = current_rect.bottom
             
-            # Add background for better visibility
-            padding = 2
-            for rect in [current_rect, future_rect]:
-                bg_rect = rect.inflate(padding * 2, padding * 2)
-                pygame.draw.rect(surface, (0, 0, 0), bg_rect)
-            
-            # Draw the values
+            # Draw values
             surface.blit(current_surface, current_rect)
             surface.blit(future_surface, future_rect)
 
     def _draw_seed(self, surface):
-        """Draw seed form of plant"""
-        radius = max(2, int(self.base_size * 0.3))
-        pygame.draw.circle(surface, self.base_color, (int(self.x), int(self.y)), radius)
+        """Draw the plant in seed state"""
+        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.base_size)
 
     def _draw_plant(self, surface):
-        """Draw mature form of plant"""
+        """Draw the mature plant"""
         # Draw main stem and branches
         self.draw_fractal_branch(surface, 
                                (self.x, self.y),  # start position

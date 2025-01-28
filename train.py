@@ -25,9 +25,9 @@ pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-MIN_STEPS = 3000  # Starting number of steps
-MAX_STEPS = 8000  # Maximum steps allowed
-STEPS_INCREMENT = 100  # Changed from 200 to 100 steps per episode
+MIN_STEPS = 1000  # Starting number of steps
+MAX_STEPS = 6000  # Maximum steps allowed
+STEPS_INCREMENT = 50  # Changed from 200 to 50 steps per episode
 PERFORMANCE_THRESHOLD = -50  # More lenient threshold
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
@@ -104,11 +104,11 @@ def fast_training():
             for step in range(steps_per_episode):
                 step_start = time.time()
                 
-                # Get action and update game
-                action = agent.act(state)
-                game_start = time.time()
-                next_state, reward, done, info = game.step(action)
-                game_time += time.time() - game_start
+                # Get action from agent
+                action, target_plant = agent.act(state)
+                
+                # Execute action in environment
+                next_state, reward, done, info = game.step((action, target_plant))
                 
                 # Track metrics
                 if info['ate_plant']:
@@ -155,7 +155,7 @@ def fast_training():
                 episode_positions.add(grid_pos)
                 
                 # Store experience and train
-                agent.remember(state, action, reward, next_state, done)
+                agent.remember(state, action, target_plant, reward, next_state, done)
                 
                 train_start = time.time()
                 if len(agent.memory) >= agent.batch_size and step % 4 == 0:

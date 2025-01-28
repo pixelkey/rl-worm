@@ -421,6 +421,13 @@ class WormGame:
         
     def step(self, action):
         """Execute one time step within the environment"""
+        if isinstance(action, tuple):
+            action, target_plant_idx = action
+        else:
+            target_plant_idx = 0  # Default to first plant if not provided
+            
+        self.target_plant_idx = target_plant_idx  # Store for visualization
+        
         # Update difficulty based on worm length
         difficulty_factor = (len(self.positions) - self.min_segments) / 10  # Every 10 segments above min increases difficulty
         self.current_hunger_rate = self.base_hunger_rate * (1 + difficulty_factor * 0.1)  # 10% faster hunger per difficulty level
@@ -672,29 +679,30 @@ class WormGame:
     
     def draw(self, surface=None):
         """Draw the game state"""
-        if self.headless:
-            return
+        if surface is None:
+            surface = self.game_surface
             
-        # Use provided surface or default game surface
-        draw_surface = surface if surface is not None else self.game_surface
+        # Clear the surface
+        surface.fill((20, 20, 20))  # Dark background
         
-        # Fill background with dark color
-        draw_surface.fill((20, 20, 20))
-        
-        # Draw plants first (they're in the background)
-        head_x, head_y = self.positions[0]
-        for plant in self.plants:
-            plant.draw(draw_surface, head_x, head_y, self.speed)
+        # Draw plants
+        for i, plant in enumerate(self.plants):
+            # Highlight the plant that the worm's neural network is targeting
+            is_target = (hasattr(self, 'nearest_plant_indices') and 
+                        hasattr(self, 'target_plant_idx') and
+                        len(self.nearest_plant_indices) > self.target_plant_idx and
+                        i == self.nearest_plant_indices[self.target_plant_idx])
+            plant.draw(surface, self.positions[0][0], self.positions[0][1], self.speed, is_target)
         
         # Draw walls as connected jagged lines
         def draw_wall_line(points):
             if len(points) > 1:
-                pygame.draw.lines(draw_surface, self.wall_color, False, points, 2)
+                pygame.draw.lines(surface, self.wall_color, False, points, 2)
                 # Add some darker shading on the inner edge
                 darker_color = (max(0, self.wall_color[0] - 20),
                               max(0, self.wall_color[1] - 20),
                               max(0, self.wall_color[2] - 20))
-                pygame.draw.lines(draw_surface, darker_color, False, points, 1)
+                pygame.draw.lines(surface, darker_color, False, points, 1)
         
         draw_wall_line(self.left_wall)
         draw_wall_line(self.right_wall)
@@ -704,9 +712,9 @@ class WormGame:
         # Draw grid lines for visual reference
         grid_spacing = self.game_height // 10
         for i in range(0, self.game_width + grid_spacing, grid_spacing):
-            pygame.draw.line(draw_surface, (40, 40, 40), (i, 0), (i, self.game_height))
+            pygame.draw.line(surface, (40, 40, 40), (i, 0), (i, self.game_height))
         for i in range(0, self.game_height + grid_spacing, grid_spacing):
-            pygame.draw.line(draw_surface, (40, 40, 40), (0, i), (self.game_width, i))
+            pygame.draw.line(surface, (40, 40, 40), (0, i), (self.game_width, i))
         
         # Draw worm segments from tail to head
         for i in range(len(self.positions)-1, 0, -1):
@@ -769,7 +777,7 @@ class WormGame:
         font = pygame.font.Font(None, self.game_height // 30)  # Smaller font
         
         # Draw hunger meter
-        pygame.draw.rect(draw_surface, (100, 100, 100),
+        pygame.draw.rect(surface, (100, 100, 100),
                        (meter_x, meter_y, meter_width, meter_height))
         
         # Draw hunger fill
@@ -779,7 +787,7 @@ class WormGame:
             int(255 * (self.hunger/self.max_hunger)),
             0
         )
-        pygame.draw.rect(draw_surface, fill_color,
+        pygame.draw.rect(surface, fill_color,
                        (meter_x+1, meter_y+1, fill_width, meter_height-2))
         
         # Draw "Hunger" label
@@ -788,18 +796,18 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = meter_y + meter_height//2
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw level progress bar
         progress_y = meter_y + meter_height + padding
-        pygame.draw.rect(draw_surface, (100, 100, 100),
+        pygame.draw.rect(surface, (100, 100, 100),
                        (meter_x, progress_y, meter_width, meter_height))
         
         # Draw progress fill
         progress = min(1.0, self.steps_in_level / self.steps_for_level)  
         fill_width = int((meter_width - 2) * progress)
         fill_color = (100, 200, 255)
-        pygame.draw.rect(draw_surface, fill_color,
+        pygame.draw.rect(surface, fill_color,
                        (meter_x+1, progress_y+1, fill_width, meter_height-2))
         
         # Draw "Level Progress" label
@@ -808,7 +816,7 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = progress_y + meter_height//2
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw stats in top-left corner
         stats_x = padding * 2
@@ -828,7 +836,7 @@ class WormGame:
             text_surface = font.render(stat, True, (200, 200, 200))
             text_rect = text_surface.get_rect()
             text_rect.topleft = (stats_x, stats_y)
-            draw_surface.blit(text_surface, text_rect)
+            surface.blit(text_surface, text_rect)
             stats_y += line_height
         
         # Draw steps counter below level progress bar
@@ -837,16 +845,16 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = self.game_width - padding * 2
         text_rect.top = progress_y + meter_height + padding
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw game area border
-        if not surface:
+        if surface is self.game_surface:
             # Clear screen
             screen = pygame.display.get_surface()
             screen.fill((20, 20, 20))
             
             # Draw game surface onto main screen with offset
-            screen.blit(draw_surface, (self.game_x_offset, self.game_y_offset))
+            screen.blit(surface, (self.game_x_offset, self.game_y_offset))
             
             # Draw border around game area
             pygame.draw.rect(screen, (100, 100, 100), 
@@ -1156,43 +1164,68 @@ class WormGame:
         # Get head position
         head_x, head_y = self.positions[0]
         
-        # Get distances and angles to nearest plants
+        # Get distances and angles to plants with weighted scoring
         plant_info = []
-        for plant in self.plants:
+        all_plant_info = []  # Store info for all plants for debugging
+        for i, plant in enumerate(self.plants):
             dx = plant.x - head_x
             dy = plant.y - head_y
             distance = math.sqrt(dx*dx + dy*dy)
-            angle = math.degrees(math.atan2(-dy, dx)) % 360  # Convert to positive degrees
+            angle = math.degrees(math.atan2(-dy, dx)) % 360
             current_value = plant.get_nutritional_value()
             future_value = plant.predict_future_value(head_x, head_y, self.speed)
-            plant_info.append((distance, angle, current_value, future_value))
+            
+            # Calculate angle difference with worm's current direction
+            worm_angle = math.degrees(self.angle) % 360
+            angle_diff = min((angle - worm_angle) % 360, (worm_angle - angle) % 360)
+            
+            # Calculate weighted score
+            distance_factor = 1.0 / (1.0 + distance/100)  # Softer distance penalty
+            direction_bonus = 1.0 + (1.0 - angle_diff/180) * 0.2  # Up to 20% bonus for aligned direction
+            
+            score = (current_value * 1.0 +      # Base weight for current value
+                    future_value * 2.0 +        # Double weight for future value
+                    distance_factor * 50 +       # Distance matters but not as much
+                    direction_bonus * 20)        # Small bonus for directional alignment
+            
+            plant_info.append((score, distance, angle, current_value, future_value, i))
+            all_plant_info.append((i, distance, current_value, future_value, score))
         
-        # Sort by distance and take the 3 nearest plants
-        plant_info.sort()
-        plant_info = plant_info[:3]
+        # Sort by score (highest first) and take the top 3
+        plant_info.sort(reverse=True)
+        selected_plants = plant_info[:3]
         
-        # If we have fewer than 3 plants, pad with far away dummy plants
-        while len(plant_info) < 3:
-            plant_info.append((1000, 0, 0, 0))  # Far away plant with no nutritional value
+        # Debug print every 60 frames
+        if self.steps_in_level % 60 == 0 and len(all_plant_info) > 3:
+            print("\nPlant Selection Debug:")
+            print("All plants (idx, dist, curr_val, future_val, score):")
+            all_plant_info.sort(key=lambda x: x[1])  # Sort by distance for comparison
+            for idx, dist, curr, fut, score in all_plant_info:
+                print(f"Plant {idx}: dist={dist:.1f}, curr={curr:.1f}, future={fut:.1f}, score={score:.1f}")
+            print("\nSelected plants (by score):")
+            for score, dist, _, curr, fut, idx in selected_plants:
+                print(f"Selected {idx}: dist={dist:.1f}, curr={curr:.1f}, future={fut:.1f}, score={score:.1f}")
+            print("-" * 50)
         
-        # Create state vector:
-        # [dx1, dy1, current_value1, future_value1, 
-        #  dx2, dy2, current_value2, future_value2, 
-        #  dx3, dy3, current_value3, future_value3,
-        #  direction_x, direction_y, speed]
+        # If we have fewer than 3 plants, pad with dummy plants
+        while len(selected_plants) < 3:
+            selected_plants.append((-1000, 1000, 0, 0, 0, -1))  # -1 index for dummy plants
+        
+        # Create state vector
         state = []
-        for distance, angle, current_value, future_value in plant_info:
-            # Convert polar (distance, angle) to cartesian (dx, dy)
+        self.nearest_plant_indices = []  # Store indices of best plants
+        for _, distance, angle, current_value, future_value, plant_idx in selected_plants:
             angle_rad = math.radians(angle)
             dx = distance * math.cos(angle_rad)
-            dy = -distance * math.sin(angle_rad)  # Negative because y increases downward
+            dy = -distance * math.sin(angle_rad)
             state.extend([dx, dy, current_value, future_value])
-        
+            self.nearest_plant_indices.append(plant_idx)
+            
         # Add worm's current direction and speed
         state.extend([math.cos(self.angle), math.sin(self.angle), self.speed])
         
         return np.array(state)
-    
+        
     def reset(self):
         """Reset the game state"""
         # Reset worm position to center
@@ -1283,7 +1316,7 @@ class WormGame:
             self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
 
 # ML Agent setup
-STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
+STATE_SIZE = 15  # plant info (12), worm direction (2), speed (1)
 ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
@@ -1355,13 +1388,13 @@ if __name__ == "__main__":
         state = game._get_state()
         
         # Get action from agent
-        action = agent.act(state)
+        action, target_plant = agent.act(state)
         
         # Execute action and get next state
-        next_state, reward, done, _ = game.step(action)
+        next_state, reward, done, _ = game.step((action, target_plant))
         
         # Remember experience
-        agent.remember(state, action, reward, next_state, done)
+        agent.remember(state, action, target_plant, reward, next_state, done)
         
         # Train the agent
         if not args.demo:  # Only train if not in demo mode
