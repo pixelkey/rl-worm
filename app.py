@@ -67,9 +67,9 @@ class WormGame:
         self.level = 1
         self.episode_reward = 0.0
         self.steps_in_level = 0
-        self.min_steps = 2000  # Start with 2000 steps like training
-        self.max_steps = 5000  # Maximum steps like training
-        self.steps_increment = 100  # How many steps to add when leveling up
+        self.min_steps = 6000  # Changed from 2000 to 6000
+        self.max_steps = 20000  # Increased max steps to accommodate longer levels
+        self.steps_increment = 1000  # Changed from 100 to 1000
         self.steps_for_level = self.min_steps  # Current level's step requirement
         
         # Add level and episode tracking

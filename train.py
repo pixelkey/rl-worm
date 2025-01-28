@@ -24,9 +24,9 @@ pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-MIN_STEPS = 3000  # Start with more steps
-MAX_STEPS = 8000  # Allow for longer episodes
-STEPS_INCREMENT = 200  # Larger increment for better progression
+MIN_STEPS = 3000  # Starting number of steps
+MAX_STEPS = 8000  # Maximum steps allowed
+STEPS_INCREMENT = 100  # Changed from 200 to 100 steps per episode
 PERFORMANCE_THRESHOLD = -50  # More lenient threshold
 SAVE_INTERVAL = 10
 PRINT_INTERVAL = 1
@@ -220,7 +220,6 @@ def fast_training():
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()
     
-    steps_per_episode = MIN_STEPS
     last_time = time.time()
     
     try:
@@ -247,6 +246,10 @@ def fast_training():
             # Track performance
             training_time = 0
             game_time = 0
+            
+            steps_per_episode = MIN_STEPS + (episode * STEPS_INCREMENT)  # Add increment each episode
+            if steps_per_episode > MAX_STEPS:
+                steps_per_episode = MAX_STEPS
             
             for step in range(steps_per_episode):
                 step_start = time.time()
@@ -363,11 +366,6 @@ def fast_training():
                 print(f"Training Time: {training_time:.2f}s")
                 last_time = current_time
             
-            # Increase steps if performance improves
-            if total_reward > PERFORMANCE_THRESHOLD and steps_per_episode < MAX_STEPS:
-                steps_per_episode += STEPS_INCREMENT
-                print(f"Steps increased to {steps_per_episode}")
-                
     except KeyboardInterrupt:
         print("\nTraining interrupted! Saving progress...")
         agent.save(episode)
