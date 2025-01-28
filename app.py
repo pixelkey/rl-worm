@@ -681,6 +681,11 @@ class WormGame:
         # Fill background with dark color
         draw_surface.fill((20, 20, 20))
         
+        # Draw plants first (they're in the background)
+        head_x, head_y = self.positions[0]
+        for plant in self.plants:
+            plant.draw(draw_surface, head_x, head_y, self.speed)
+        
         # Draw walls as connected jagged lines
         def draw_wall_line(points):
             if len(points) > 1:
@@ -702,10 +707,6 @@ class WormGame:
             pygame.draw.line(draw_surface, (40, 40, 40), (i, 0), (i, self.game_height))
         for i in range(0, self.game_height + grid_spacing, grid_spacing):
             pygame.draw.line(draw_surface, (40, 40, 40), (0, i), (self.game_width, i))
-        
-        # Draw plants
-        for plant in self.plants:
-            plant.draw(draw_surface)
         
         # Draw worm segments from tail to head
         for i in range(len(self.positions)-1, 0, -1):
@@ -1151,73 +1152,46 @@ class WormGame:
                 pygame.draw.lines(self.game_surface, self.pupil_color, False, points, mouth_thickness)
     
     def _get_state(self):
-        """Get the current state for the neural network"""
+        """Get the current state of the game for the RL agent"""
+        # Get head position
         head_x, head_y = self.positions[0]
         
-        # Calculate normalized positions [-1, 1]
-        norm_x = (head_x / (self.width * 0.5)) - 1
-        norm_y = (head_y / (self.height * 0.5)) - 1
-        
-        # Calculate normalized velocity components [-1, 1]
-        if len(self.positions) > 1:
-            prev_x, prev_y = self.positions[1]
-            vel_x = (head_x - prev_x) / self.segment_length
-            vel_y = (head_y - prev_y) / self.segment_length
-        else:
-            vel_x = vel_y = 0
-        
-        # Normalize angle to [-1, 1]
-        norm_angle = self.angle / math.pi
-        
-        # Calculate angular velocity (change in angle) [-1, 1]
-        angular_vel = 0
-        if len(self.positions) > 1:
-            prev_angle = math.atan2(head_y - prev_y, head_x - prev_x)
-            angular_vel = (self.angle - prev_angle) / math.pi
-        
-        # Get nearest plant info
-        nearest_dist = float('inf')
-        nearest_dx = 0
-        nearest_dy = 0
-        
+        # Get distances and angles to nearest plants
+        plant_info = []
         for plant in self.plants:
             dx = plant.x - head_x
             dy = plant.y - head_y
-            dist = math.sqrt(dx*dx + dy*dy)
-            if dist < nearest_dist:
-                nearest_dist = dist
-                nearest_dx = dx
-                nearest_dy = dy
+            distance = math.sqrt(dx*dx + dy*dy)
+            angle = math.degrees(math.atan2(-dy, dx)) % 360  # Convert to positive degrees
+            current_value = plant.get_nutritional_value()
+            future_value = plant.predict_future_value(head_x, head_y, self.speed)
+            plant_info.append((distance, angle, current_value, future_value))
         
-        # Normalize plant distances [-1, 1]
-        max_dist = math.sqrt(self.width**2 + self.height**2)
-        if nearest_dist == float('inf'):
-            plant_dist = 1.0  # Maximum normalized distance
-            plant_dx = 0
-            plant_dy = 0
-        else:
-            plant_dist = (nearest_dist / max_dist) * 2 - 1
-            plant_dx = nearest_dx / max_dist
-            plant_dy = nearest_dy / max_dist
+        # Sort by distance and take the 3 nearest plants
+        plant_info.sort()
+        plant_info = plant_info[:3]
         
-        # Calculate normalized distances to walls [-1, 1]
-        left_dist = head_x / (self.width * 0.5) - 1
-        right_dist = (self.width - head_x) / (self.width * 0.5) - 1
-        top_dist = head_y / (self.height * 0.5) - 1
-        bottom_dist = (self.height - head_y) / (self.height * 0.5) - 1
+        # If we have fewer than 3 plants, pad with far away dummy plants
+        while len(plant_info) < 3:
+            plant_info.append((1000, 0, 0, 0))  # Far away plant with no nutritional value
         
-        # Normalize hunger [0, 1] then scale to [-1, 1]
-        norm_hunger = (self.hunger / self.max_hunger) * 2 - 1
+        # Create state vector:
+        # [dx1, dy1, current_value1, future_value1, 
+        #  dx2, dy2, current_value2, future_value2, 
+        #  dx3, dy3, current_value3, future_value3,
+        #  direction_x, direction_y, speed]
+        state = []
+        for distance, angle, current_value, future_value in plant_info:
+            # Convert polar (distance, angle) to cartesian (dx, dy)
+            angle_rad = math.radians(angle)
+            dx = distance * math.cos(angle_rad)
+            dy = -distance * math.sin(angle_rad)  # Negative because y increases downward
+            state.extend([dx, dy, current_value, future_value])
         
-        return np.array([
-            norm_x, norm_y,           # Position (2)
-            vel_x, vel_y,             # Velocity (2)
-            norm_angle,               # Angle (1)
-            angular_vel,              # Angular velocity (1)
-            plant_dist, plant_dx, plant_dy,  # Plant info (3)
-            left_dist, right_dist, top_dist, bottom_dist,  # Wall distances (4)
-            norm_hunger               # Hunger (1)
-        ], dtype=np.float32)
+        # Add worm's current direction and speed
+        state.extend([math.cos(self.angle), math.sin(self.angle), self.speed])
+        
+        return np.array(state)
     
     def reset(self):
         """Reset the game state"""

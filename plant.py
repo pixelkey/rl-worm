@@ -356,7 +356,8 @@ class Plant:
         # Update state and growth based on lifetime
         if life_ratio > 0.9:  # First 10% - seed
             self.state = 'seed'
-            self.growth_stage = (1.0 - life_ratio) * 10  # 0.0 to 1.0 during seed stage
+            stage_progress = (1.0 - life_ratio) / 0.1  # 0.0 to 1.0 during seed stage
+            self.growth_stage = 0.1 * stage_progress  # Max 0.1 during seed stage
             self.stem_height = int(self.base_size * 0.2)
             self.leaf_size = 0
             self.color = (30, 110, 20)  # Dark green seed
@@ -364,7 +365,7 @@ class Plant:
         elif life_ratio > 0.7:  # Next 20% - sprouting
             self.state = 'sprouting'
             stage_progress = (0.9 - life_ratio) / 0.2  # 0.0 to 1.0 during sprouting
-            self.growth_stage = stage_progress
+            self.growth_stage = 0.1 + (0.3 * stage_progress)  # 0.1 to 0.4 during sprouting
             self.stem_height = int(self.base_size * (0.2 + stage_progress * 1.8))
             self.leaf_size = int(self.base_size * stage_progress * 0.5)
             green = int(110 + 70 * stage_progress)
@@ -373,7 +374,7 @@ class Plant:
         elif life_ratio > 0.4:  # Next 30% - growing/mature
             self.state = 'mature'
             stage_progress = (0.7 - life_ratio) / 0.3  # 0.0 to 1.0 during mature stage
-            self.growth_stage = stage_progress
+            self.growth_stage = 0.4 + (0.6 * stage_progress)  # 0.4 to 1.0 during mature stage
             self.stem_height = int(self.base_size * 2)
             self.leaf_size = self.base_size
             self.color = (20, 180, 10)  # Bright healthy green
@@ -394,15 +395,17 @@ class Plant:
         elif life_ratio > 0.1:  # Next 30% - starting to wilt
             self.state = 'wilting'
             stage_progress = (life_ratio - 0.1) / 0.3  # 1.0 to 0.0 during wilting
-            self.growth_stage = stage_progress
+            self.growth_stage = 0.4 * stage_progress  # 0.4 to 0.0 during wilting
             self.branch_growth = [1.0] * (self.max_branch_depth + 1)  # All branches fully grown
+            self.stem_height = int(self.base_size * 2)
+            self.leaf_size = int(self.base_size * stage_progress)
             green = int(180 * stage_progress)
             brown = int(120 * (1 - stage_progress))
             self.color = (brown, green, 0)
         else:  # Final 10% - nearly dead
             self.state = 'dying'
             stage_progress = life_ratio / 0.1  # 1.0 to 0.0 during dying
-            self.growth_stage = stage_progress
+            self.growth_stage = 0.1 * stage_progress  # 0.1 to 0.0 during dying
             self.branch_growth = [1.0] * (self.max_branch_depth + 1)  # All branches fully grown
             self.stem_height = int(self.base_size * (1 + stage_progress))
             self.leaf_size = int(self.base_size * stage_progress)
@@ -1027,14 +1030,149 @@ class Plant:
         
         return normalized_value
 
-    def draw(self, surface):
+    def calculate_steps_to_reach(self, worm_x, worm_y, worm_speed):
+        """Calculate how many time steps it would take for the worm to reach this plant"""
+        dx = self.x - worm_x
+        dy = self.y - worm_y
+        distance = math.sqrt(dx*dx + dy*dy)
+        return int(distance / worm_speed)  # Round down to nearest step
+
+    def predict_future_value(self, worm_x, worm_y, worm_speed):
+        """Predict the nutritional value when the worm reaches this plant"""
+        # Calculate actual time steps needed based on worm's current position and speed
+        time_steps = self.calculate_steps_to_reach(worm_x, worm_y, worm_speed)
+        
+        # Calculate future lifetime when worm would reach the plant
+        future_lifetime = max(0, self.lifetime - time_steps)
+        future_percentage = future_lifetime / self.max_lifetime
+        
+        # If the plant will be dead by the time we reach it, return 0
+        if future_lifetime <= 0:
+            return 0.0
+            
+        # Get current value for comparison
+        current_value = self.get_nutritional_value()
+        
+        # Calculate growth stage using a continuous function
+        # The growth follows this pattern:
+        # 1. Seed (90-100%): Very low value, slight increase
+        # 2. Sprouting (70-90%): Rapid increase
+        # 3. Mature (40-70%): Peak value
+        # 4. Wilting (10-40%): Gradual decrease
+        # 5. Dying (0-10%): Rapid decrease to minimum
+        
+        if future_percentage >= 0.9:  # Seed phase
+            # Linear increase from 0.1 to 0.2
+            growth_stage = 0.1 + (0.1 * (1.0 - future_percentage) / 0.1)
+        elif future_percentage >= 0.7:  # Sprouting phase
+            # Quadratic increase from 0.2 to 1.0
+            phase_progress = (0.9 - future_percentage) / 0.2
+            growth_stage = 0.2 + (0.8 * phase_progress * phase_progress)
+        elif future_percentage >= 0.4:  # Mature phase
+            # Maintain peak value with slight variation
+            phase_progress = (0.7 - future_percentage) / 0.3
+            growth_stage = 1.0 - (0.1 * (phase_progress - 0.5) * (phase_progress - 0.5))
+        elif future_percentage >= 0.1:  # Wilting phase
+            # Exponential decrease
+            phase_progress = (0.4 - future_percentage) / 0.3
+            growth_stage = 0.4 * math.exp(-2 * phase_progress)  # Faster decay
+        else:  # Dying phase
+            # Linear decrease to 0
+            growth_stage = 0.1 * (future_percentage / 0.1)
+        
+        # Base value calculation
+        base_value = self.base_size * self.plant_type.mature_height_multiplier
+        maturity_value = base_value * growth_stage
+        
+        # Plant type multipliers
+        type_multiplier = {
+            'fern': 0.8,           # Ferns are less nutritious
+            'bush': 1.0,           # Standard nutrition
+            'purple_flower': 1.2,   # Flowering plants are more nutritious
+            'red_flower': 1.2,
+            'yellow_flower': 1.2,
+            'vine': 0.9,           # Vines are slightly less nutritious
+            'succulent': 1.3,      # Succulents are very nutritious
+            'orchid': 1.1          # Orchids are somewhat more nutritious
+        }.get(self.plant_type.name, 1.0)
+        
+        # Calculate raw value
+        raw_value = maturity_value * type_multiplier
+        
+        # Normalize to range [0.2, 1.0] just like get_nutritional_value
+        normalized_value = 0.2 + (0.8 * min(1.0, raw_value / (self.base_size * 2)))
+        
+        # During wilting/dying phases, future value cannot exceed current value
+        if future_percentage < 0.4:  # If wilting or dying
+            normalized_value = min(normalized_value, current_value)
+            
+        # If almost dead, value approaches zero
+        if future_percentage < 0.05:  # Last 5% of lifetime
+            # Linear interpolation to zero
+            normalized_value *= future_percentage / 0.05
+            
+        return normalized_value
+
+    def draw(self, surface, worm_x=None, worm_y=None, worm_speed=4.0):
         """Draw the plant"""
         if self.state == 'seed':
-            # Draw seed
-            radius = max(2, int(self.base_size * 0.3))
-            pygame.draw.circle(surface, self.base_color, (int(self.x), int(self.y)), radius)
-            return
+            self._draw_seed(surface)
+        else:
+            self._draw_plant(surface)
             
+        # Draw nutrition value indicators
+        if pygame.font.get_init():  # Check if pygame font is initialized
+            small_font = pygame.font.Font(None, int(self.base_size * 0.7))  # Smaller font for labels
+            value_font = pygame.font.Font(None, int(self.base_size * 0.8))  # Slightly larger for values
+            
+            # Current nutritional value
+            current_value = self.get_nutritional_value()
+            current_text = f"Now: {current_value:.1f}"
+            
+            # Future nutritional value
+            future_value = self.predict_future_value(worm_x, worm_y, worm_speed) if worm_x is not None else current_value
+            future_text = f"Future: {future_value:.1f}"
+            
+            # Color coding based on values
+            def value_to_color(value):
+                if value >= 1.0:
+                    return (0, 255, 0)  # Green for high value
+                elif value >= 0.5:
+                    return (255, 255, 0)  # Yellow for medium value
+                else:
+                    return (255, 165, 0)  # Orange for low value
+            
+            # Render current value
+            current_color = value_to_color(current_value)
+            current_surface = value_font.render(current_text, True, current_color)
+            current_rect = current_surface.get_rect()
+            current_rect.centerx = self.x
+            current_rect.top = self.y + self.base_size  # Place below plant
+            
+            # Render future value
+            future_color = value_to_color(future_value)
+            future_surface = value_font.render(future_text, True, future_color)
+            future_rect = future_surface.get_rect()
+            future_rect.centerx = self.x
+            future_rect.top = current_rect.bottom + 2  # Place below current value
+            
+            # Add background for better visibility
+            padding = 2
+            for rect in [current_rect, future_rect]:
+                bg_rect = rect.inflate(padding * 2, padding * 2)
+                pygame.draw.rect(surface, (0, 0, 0), bg_rect)
+            
+            # Draw the values
+            surface.blit(current_surface, current_rect)
+            surface.blit(future_surface, future_rect)
+
+    def _draw_seed(self, surface):
+        """Draw seed form of plant"""
+        radius = max(2, int(self.base_size * 0.3))
+        pygame.draw.circle(surface, self.base_color, (int(self.x), int(self.y)), radius)
+
+    def _draw_plant(self, surface):
+        """Draw mature form of plant"""
         # Draw main stem and branches
         self.draw_fractal_branch(surface, 
                                (self.x, self.y),  # start position

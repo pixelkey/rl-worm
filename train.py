@@ -65,7 +65,7 @@ def fast_training():
     start_time = time.time()
     
     # Initialize agent and analytics
-    STATE_SIZE = 14  # [pos_x, pos_y, vel_x, vel_y, angle, angular_vel, plant_dist, plant_dx, plant_dy, wall_left, wall_right, wall_top, wall_bottom, hunger]
+    STATE_SIZE = 15  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), plant_value (1), walls (4), hunger (1)
     ACTION_SIZE = 9
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     analytics = WormAnalytics()

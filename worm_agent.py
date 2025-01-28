@@ -9,15 +9,21 @@ import torch.nn.functional as F
 
 class WormAgent:
     def __init__(self, state_size, action_size):
+        """Initialize an agent
+        
+        Args:
+            state_size (int): Size of state space
+            action_size (int): Size of action space
+        """
         self.state_size = state_size
         self.action_size = action_size
-        self.memory = deque(maxlen=100000)
-        self.batch_size = 512
-        self.gamma = 0.99
-        self.epsilon = 1.0
+        self.memory = deque(maxlen=2000)
+        self.gamma = 0.95  # discount rate
+        self.epsilon = 1.0  # exploration rate
         self.epsilon_min = 0.01
-        self.epsilon_decay = 0.9995
-        self.learning_rate = 0.0005
+        self.epsilon_decay = 0.995
+        self.learning_rate = 0.001
+        self.batch_size = 32
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         print(f"Using device: {self.device}")
@@ -27,86 +33,88 @@ class WormAgent:
         
         self.model = self._build_model().to(self.device)
         self.target_model = self._build_model().to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        
-        # Try to load saved model
-        self.load()
+        self.update_target_model()
 
     def remember(self, state, action, reward, next_state, done):
+        """Add experience to memory"""
         # Normalize reward to roughly [-1, 1] range
         # Base scale on wall hit (-200) and food reward (~100)
         normalized_reward = np.clip(reward / 200.0, -1.0, 1.0)
         
-        # Ensure states are numpy arrays with correct dtype
-        if not isinstance(state, np.ndarray):
-            state = np.array(state, dtype=np.float32)
-        if not isinstance(next_state, np.ndarray):
-            next_state = np.array(next_state, dtype=np.float32)
+        # Convert state and next_state to float32 before storing
+        state = np.array(state, dtype=np.float32)
+        next_state = np.array(next_state, dtype=np.float32)
         
         self.memory.append((state, action, normalized_reward, next_state, done))
     
     def _build_model(self):
-        return nn.Sequential(
-            nn.Linear(self.state_size, 512),  
+        """Neural Net for Deep-Q learning Model"""
+        # Create a new model with the correct input size (15)
+        model = nn.Sequential(
+            nn.Linear(15, 512),  # Updated input size to 15
             nn.ReLU(),
-            nn.Dropout(0.1),  
-            nn.Linear(512, 512),  
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(512, 256),  
+            nn.Linear(512, 256),
             nn.ReLU(),
             nn.Linear(256, self.action_size)
         )
+        self.optimizer = optim.Adam(model.parameters(), lr=self.learning_rate)
+        return model
     
     def act(self, state):
+        """Choose an action based on state"""
         if random.random() <= self.epsilon:
             return random.randrange(self.action_size)
-        
+            
+        state = torch.FloatTensor(state).float().unsqueeze(0).to(self.device)  # Ensure float32
         with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
             act_values = self.model(state)
-            return torch.argmax(act_values).item()
+            
+        return torch.argmax(act_values).item()
     
     def train(self):
+        """Train the agent using experience replay"""
         if len(self.memory) < self.batch_size:
-            return
-        
+            return 0.0
+            
+        # Sample a random batch from memory
         minibatch = random.sample(self.memory, self.batch_size)
         
-        # Pre-allocate and fill arrays
-        states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
-        next_states_array = np.zeros((self.batch_size, self.state_size), dtype=np.float32)
+        # Create arrays to hold states, actions, rewards, next_states
+        states_array = np.zeros((self.batch_size, 15), dtype=np.float32)  # Ensure float32
+        next_states_array = np.zeros((self.batch_size, 15), dtype=np.float32)  # Ensure float32
         actions_array = np.zeros(self.batch_size, dtype=np.int64)
-        rewards_array = np.zeros(self.batch_size, dtype=np.float32)
-        dones_array = np.zeros(self.batch_size, dtype=np.float32)
+        rewards_array = np.zeros(self.batch_size, dtype=np.float32)  # Ensure float32
+        dones_array = np.zeros(self.batch_size, dtype=np.bool_)
         
-        # Fill arrays efficiently
+        # Fill the arrays
         for i, (state, action, reward, next_state, done) in enumerate(minibatch):
-            states_array[i] = state
-            next_states_array[i] = next_state
+            states_array[i] = state.astype(np.float32)  # Ensure float32
+            next_states_array[i] = next_state.astype(np.float32)  # Ensure float32
             actions_array[i] = action
             rewards_array[i] = reward
             dones_array[i] = done
+            
+        # Convert numpy arrays to torch tensors
+        states = torch.FloatTensor(states_array).to(self.device)
+        next_states = torch.FloatTensor(next_states_array).to(self.device)
+        actions = torch.LongTensor(actions_array).to(self.device)
+        rewards = torch.FloatTensor(rewards_array).to(self.device)
+        dones = torch.BoolTensor(dones_array).to(self.device)
         
-        # Convert all arrays to tensors at once
-        states = torch.from_numpy(states_array).to(self.device)
-        next_states = torch.from_numpy(next_states_array).to(self.device)
-        actions = torch.from_numpy(actions_array).to(self.device)
-        rewards = torch.from_numpy(rewards_array).to(self.device)
-        dones = torch.from_numpy(dones_array).to(self.device)
-        
-        # Forward passes
+        # Get current Q values
         current_q = self.model(states).gather(1, actions.unsqueeze(1))
-        with torch.no_grad():
-            next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + (1 - dones) * self.gamma * next_q
         
-        # Loss and backward pass
-        loss = nn.MSELoss()(current_q.squeeze(), target_q)
+        # Get next Q values
+        next_q = self.target_model(next_states).detach()
+        max_next_q = next_q.max(1)[0]
+        target_q = rewards + (self.gamma * max_next_q * ~dones)
         
+        # Compute loss
+        loss = F.mse_loss(current_q.squeeze(), target_q)
+        
+        # Optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
         
         if self.epsilon > self.epsilon_min:
@@ -115,6 +123,7 @@ class WormAgent:
         return loss.item()
     
     def update_target_model(self):
+        """Copy weights from model to target_model"""
         self.target_model.load_state_dict(self.model.state_dict())
     
     def save(self, episode):
