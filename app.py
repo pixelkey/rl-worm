@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from analytics.metrics import WormAnalytics
+from worm_agent import WormAgent  # Import the training version
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -286,6 +287,7 @@ class WormGame:
         # Debug info
         self.last_reward = 0
         self.last_reward_source = "None"
+        self.selected_plant = None
         
     def spawn_plant(self):
         """Try to spawn a new plant if conditions are met"""
@@ -420,6 +422,24 @@ class WormGame:
         
     def step(self, action):
         """Execute one time step within the environment"""
+        # If the action is a tuple, update the selected plant based on agent's prediction
+        if isinstance(action, tuple):
+            action_val, target_plant = action
+            self.selected_plant = None
+            if hasattr(self, 'nearest_plant_indices'):
+                if target_plant < len(self.nearest_plant_indices):
+                    selected_idx = self.nearest_plant_indices[target_plant]
+                    if selected_idx != -1 and selected_idx < len(self.plants):
+                        self.selected_plant = self.plants[selected_idx]
+            action = action_val
+        
+        if isinstance(action, tuple):
+            action, target_plant_idx = action
+        else:
+            target_plant_idx = 0  # Default to first plant if not provided
+            
+        self.target_plant_idx = target_plant_idx  # Store for visualization
+        
         # Update difficulty based on worm length
         difficulty_factor = (len(self.positions) - self.min_segments) / 10  # Every 10 segments above min increases difficulty
         self.current_hunger_rate = self.base_hunger_rate * (1 + difficulty_factor * 0.1)  # 10% faster hunger per difficulty level
@@ -671,24 +691,30 @@ class WormGame:
     
     def draw(self, surface=None):
         """Draw the game state"""
-        if self.headless:
-            return
+        if surface is None:
+            surface = self.game_surface
             
-        # Use provided surface or default game surface
-        draw_surface = surface if surface is not None else self.game_surface
+        # Clear the surface
+        surface.fill((20, 20, 20))  # Dark background
         
-        # Fill background with dark color
-        draw_surface.fill((20, 20, 20))
+        # Draw plants
+        for i, plant in enumerate(self.plants):
+            # Highlight the plant that the worm's neural network is targeting
+            is_target = (hasattr(self, 'nearest_plant_indices') and 
+                        hasattr(self, 'target_plant_idx') and
+                        len(self.nearest_plant_indices) > self.target_plant_idx and
+                        i == self.nearest_plant_indices[self.target_plant_idx])
+            plant.draw(surface, self.positions[0][0], self.positions[0][1], self.speed, is_target)
         
         # Draw walls as connected jagged lines
         def draw_wall_line(points):
             if len(points) > 1:
-                pygame.draw.lines(draw_surface, self.wall_color, False, points, 2)
+                pygame.draw.lines(surface, self.wall_color, False, points, 2)
                 # Add some darker shading on the inner edge
                 darker_color = (max(0, self.wall_color[0] - 20),
                               max(0, self.wall_color[1] - 20),
                               max(0, self.wall_color[2] - 20))
-                pygame.draw.lines(draw_surface, darker_color, False, points, 1)
+                pygame.draw.lines(surface, darker_color, False, points, 1)
         
         draw_wall_line(self.left_wall)
         draw_wall_line(self.right_wall)
@@ -698,13 +724,9 @@ class WormGame:
         # Draw grid lines for visual reference
         grid_spacing = self.game_height // 10
         for i in range(0, self.game_width + grid_spacing, grid_spacing):
-            pygame.draw.line(draw_surface, (40, 40, 40), (i, 0), (i, self.game_height))
+            pygame.draw.line(surface, (40, 40, 40), (i, 0), (i, self.game_height))
         for i in range(0, self.game_height + grid_spacing, grid_spacing):
-            pygame.draw.line(draw_surface, (40, 40, 40), (0, i), (self.game_width, i))
-        
-        # Draw plants
-        for plant in self.plants:
-            plant.draw(draw_surface)
+            pygame.draw.line(surface, (40, 40, 40), (0, i), (self.game_width, i))
         
         # Draw worm segments from tail to head
         for i in range(len(self.positions)-1, 0, -1):
@@ -767,7 +789,7 @@ class WormGame:
         font = pygame.font.Font(None, self.game_height // 30)  # Smaller font
         
         # Draw hunger meter
-        pygame.draw.rect(draw_surface, (100, 100, 100),
+        pygame.draw.rect(surface, (100, 100, 100),
                        (meter_x, meter_y, meter_width, meter_height))
         
         # Draw hunger fill
@@ -777,7 +799,7 @@ class WormGame:
             int(255 * (self.hunger/self.max_hunger)),
             0
         )
-        pygame.draw.rect(draw_surface, fill_color,
+        pygame.draw.rect(surface, fill_color,
                        (meter_x+1, meter_y+1, fill_width, meter_height-2))
         
         # Draw "Hunger" label
@@ -786,18 +808,18 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = meter_y + meter_height//2
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw level progress bar
         progress_y = meter_y + meter_height + padding
-        pygame.draw.rect(draw_surface, (100, 100, 100),
+        pygame.draw.rect(surface, (100, 100, 100),
                        (meter_x, progress_y, meter_width, meter_height))
         
         # Draw progress fill
         progress = min(1.0, self.steps_in_level / self.steps_for_level)  
         fill_width = int((meter_width - 2) * progress)
         fill_color = (100, 200, 255)
-        pygame.draw.rect(draw_surface, fill_color,
+        pygame.draw.rect(surface, fill_color,
                        (meter_x+1, progress_y+1, fill_width, meter_height-2))
         
         # Draw "Level Progress" label
@@ -806,7 +828,7 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = progress_y + meter_height//2
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw stats in top-left corner
         stats_x = padding * 2
@@ -826,7 +848,7 @@ class WormGame:
             text_surface = font.render(stat, True, (200, 200, 200))
             text_rect = text_surface.get_rect()
             text_rect.topleft = (stats_x, stats_y)
-            draw_surface.blit(text_surface, text_rect)
+            surface.blit(text_surface, text_rect)
             stats_y += line_height
         
         # Draw steps counter below level progress bar
@@ -835,16 +857,16 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = self.game_width - padding * 2
         text_rect.top = progress_y + meter_height + padding
-        draw_surface.blit(text_surface, text_rect)
+        surface.blit(text_surface, text_rect)
         
         # Draw game area border
-        if not surface:
+        if surface is self.game_surface:
             # Clear screen
             screen = pygame.display.get_surface()
             screen.fill((20, 20, 20))
             
             # Draw game surface onto main screen with offset
-            screen.blit(draw_surface, (self.game_x_offset, self.game_y_offset))
+            screen.blit(surface, (self.game_x_offset, self.game_y_offset))
             
             # Draw border around game area
             pygame.draw.rect(screen, (100, 100, 100), 
@@ -889,68 +911,48 @@ class WormGame:
             # Calculate pupil size
             pupil_size = self.eye_size // 2
             
-            # Find nearest plant
-            nearest_plant = None
-            min_dist = float('inf')
-            plant_x = plant_y = None
+            # Adjust pupil positions to look at the selected plant if available; if not, remain centered with expression offset
+            pupil_y_offset = self.eye_size * 0.3 * self.expression  # Expression offset
             
-            for plant in self.plants:
-                plant_rect = plant.get_bounding_box()
-                plant_center_x = plant_rect.centerx
-                plant_center_y = plant_rect.centery
-                dx = plant_center_x - x
-                dy = plant_center_y - y
-                dist = math.sqrt(dx*dx + dy*dy)
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest_plant = plant
-                    plant_x = plant_center_x
-                    plant_y = plant_center_y
-            
-            # Adjust pupil positions based on nearest plant and expression
-            pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
-            
-            # Calculate target pupil positions - start at center with expression offset
+            # Default target positions (centered with expression offset)
             target_left_x = 0
             target_left_y = pupil_y_offset
             target_right_x = 0
             target_right_y = pupil_y_offset
             
-            if nearest_plant:
-                # Calculate angles and distances from each eye to plant
-                left_dx = plant_x - left_eye_x
-                left_dy = plant_y - left_eye_y
-                right_dx = plant_x - right_eye_x
-                right_dy = plant_y - right_eye_y
+            if self.selected_plant is not None:
+                # Get the selected plant's rectangle and calculate its center
+                plant_rect = self.selected_plant.get_bounding_box()
+                plant_center_x = plant_rect.centerx
+                plant_center_y = plant_rect.centery
+                
+                # Calculate direction vectors from each eye to the plant's center
+                left_dx = plant_center_x - left_eye_x
+                left_dy = plant_center_y - left_eye_y
+                right_dx = plant_center_x - right_eye_x
+                right_dy = plant_center_y - right_eye_y
                 
                 left_dist = math.sqrt(left_dx * left_dx + left_dy * left_dy)
                 right_dist = math.sqrt(right_dx * right_dx + right_dy * right_dy)
                 
-                # Normalize direction vectors
-                left_dx /= left_dist if left_dist > 0 else 1
-                left_dy /= left_dist if left_dist > 0 else 1
-                right_dx /= right_dist if right_dist > 0 else 1
-                right_dy /= right_dist if right_dist > 0 else 1
-                
-                # Calculate distance-based convergence (closer = more convergence)
-                convergence_distance = self.head_size * 8  # Distance at which convergence starts
-                convergence = max(0, 1 - (min_dist / convergence_distance))
-                convergence *= self.max_convergence  # Scale by max convergence factor
+                # Normalize the direction vectors
+                left_dx = left_dx / left_dist if left_dist > 0 else 0
+                left_dy = left_dy / left_dist if left_dist > 0 else 0
+                right_dx = right_dx / right_dist if right_dist > 0 else 0
+                right_dy = right_dy / right_dist if right_dist > 0 else 0
                 
                 # Limit pupil movement to 60% of eye size
                 max_pupil_offset = self.eye_size * 0.6
                 
-                # Calculate base offset for each eye
                 left_base_x = left_dx * max_pupil_offset
                 left_base_y = left_dy * max_pupil_offset
                 right_base_x = right_dx * max_pupil_offset
                 right_base_y = right_dy * max_pupil_offset
                 
-                # Add convergence effect (pull pupils inward based on distance)
-                convergence_strength = convergence * self.eye_size * 0.3
-                target_left_x = left_base_x + convergence_strength
+                # Set target pupil positions based on the selected plant's direction
+                target_left_x = left_base_x
                 target_left_y = left_base_y + pupil_y_offset
-                target_right_x = right_base_x - convergence_strength
+                target_right_x = right_base_x
                 target_right_y = right_base_y + pupil_y_offset
             
             # Smoothly interpolate current positions towards targets
@@ -1150,74 +1152,60 @@ class WormGame:
                 pygame.draw.lines(self.game_surface, self.pupil_color, False, points, mouth_thickness)
     
     def _get_state(self):
-        """Get the current state for the neural network"""
+        """Get the current state of the game for the RL agent"""
+        # Get head position
         head_x, head_y = self.positions[0]
         
-        # Calculate normalized positions [-1, 1]
-        norm_x = (head_x / (self.width * 0.5)) - 1
-        norm_y = (head_y / (self.height * 0.5)) - 1
-        
-        # Calculate normalized velocity components [-1, 1]
-        if len(self.positions) > 1:
-            prev_x, prev_y = self.positions[1]
-            vel_x = (head_x - prev_x) / self.segment_length
-            vel_y = (head_y - prev_y) / self.segment_length
-        else:
-            vel_x = vel_y = 0
-        
-        # Normalize angle to [-1, 1]
-        norm_angle = self.angle / math.pi
-        
-        # Calculate angular velocity (change in angle) [-1, 1]
-        angular_vel = 0
-        if len(self.positions) > 1:
-            prev_angle = math.atan2(head_y - prev_y, head_x - prev_x)
-            angular_vel = (self.angle - prev_angle) / math.pi
-        
-        # Get nearest plant info
-        nearest_dist = float('inf')
-        nearest_dx = 0
-        nearest_dy = 0
-        
-        for plant in self.plants:
+        # Get distances and angles to plants with weighted scoring
+        plant_info = []
+        all_plant_info = []  # Store info for all plants for debugging
+        for i, plant in enumerate(self.plants):
             dx = plant.x - head_x
             dy = plant.y - head_y
-            dist = math.sqrt(dx*dx + dy*dy)
-            if dist < nearest_dist:
-                nearest_dist = dist
-                nearest_dx = dx
-                nearest_dy = dy
+            distance = math.sqrt(dx*dx + dy*dy)
+            angle = math.degrees(math.atan2(-dy, dx)) % 360
+            current_value = plant.get_nutritional_value()
+            future_value = plant.predict_future_value(head_x, head_y, self.speed)
+            
+            # Calculate angle difference with worm's current direction
+            worm_angle = math.degrees(self.angle) % 360
+            angle_diff = min((angle - worm_angle) % 360, (worm_angle - angle) % 360)
+            
+            # Calculate weighted score
+            distance_factor = 1.0 / (1.0 + distance/100)  # Softer distance penalty
+            direction_bonus = 1.0 + (1.0 - angle_diff/180) * 0.2  # Up to 20% bonus for aligned direction
+            
+            score = (current_value * 1.0 +      # Base weight for current value
+                    future_value * 2.0 +        # Double weight for future value
+                    distance_factor * 50 +       # Distance matters but not as much
+                    direction_bonus * 20)        # Small bonus for directional alignment
+            
+            plant_info.append((score, distance, angle, current_value, future_value, i))
+            all_plant_info.append((i, distance, current_value, future_value, score))
         
-        # Normalize plant distances [-1, 1]
-        max_dist = math.sqrt(self.width**2 + self.height**2)
-        if nearest_dist == float('inf'):
-            plant_dist = 1.0  # Maximum normalized distance
-            plant_dx = 0
-            plant_dy = 0
-        else:
-            plant_dist = (nearest_dist / max_dist) * 2 - 1
-            plant_dx = nearest_dx / max_dist
-            plant_dy = nearest_dy / max_dist
+        # Sort by score (highest first) and take the top 3
+        plant_info.sort(reverse=True)
+        selected_plants = plant_info[:3]
         
-        # Calculate normalized distances to walls [-1, 1]
-        left_dist = head_x / (self.width * 0.5) - 1
-        right_dist = (self.width - head_x) / (self.width * 0.5) - 1
-        top_dist = head_y / (self.height * 0.5) - 1
-        bottom_dist = (self.height - head_y) / (self.height * 0.5) - 1
+        # If we have fewer than 3 plants, pad with dummy plants
+        while len(selected_plants) < 3:
+            selected_plants.append((-1000, 1000, 0, 0, 0, -1))  # -1 index for dummy plants
         
-        # Normalize hunger [0, 1] then scale to [-1, 1]
-        norm_hunger = (self.hunger / self.max_hunger) * 2 - 1
+        # Create state vector
+        state = []
+        self.nearest_plant_indices = []  # Store indices of best plants
+        for _, distance, angle, current_value, future_value, plant_idx in selected_plants:
+            angle_rad = math.radians(angle)
+            dx = distance * math.cos(angle_rad)
+            dy = -distance * math.sin(angle_rad)
+            state.extend([dx, dy, current_value, future_value])
+            self.nearest_plant_indices.append(plant_idx)
+            
+        # Add worm's current direction and speed
+        state.extend([math.cos(self.angle), math.sin(self.angle), self.speed])
         
-        return np.array([
-            norm_x, norm_y,           # Position (2)
-            vel_x, vel_y,             # Velocity (2)
-            norm_angle,               # Angle (1)
-            angular_vel,              # Angular velocity (1)
-            plant_dist, plant_dx, plant_dy,  # Plant info (3)
-            left_dist, right_dist, top_dist, bottom_dist,  # Wall distances (4)
-            norm_hunger               # Hunger (1)
-        ], dtype=np.float32)
-    
+        return np.array(state)
+        
     def reset(self):
         """Reset the game state"""
         # Reset worm position to center
@@ -1307,132 +1295,8 @@ class WormGame:
             self.blink_end_time = self.blink_start_time + self.blink_duration
             self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
 
-class WormAgent:
-    def __init__(self, state_size, action_size):
-        self.state_size = state_size
-        self.action_size = action_size
-        self.memory = deque(maxlen=100000)  # Increased memory size
-        self.batch_size = 64  # Much smaller batch size
-        self.gamma = 0.99
-        self.epsilon = 1.0
-        self.epsilon_min = 0.1  # Increased from 0.05 for more exploration
-        self.epsilon_decay = 0.9998  # Much slower decay from 0.9995
-        self.learning_rate = 0.0005  # Keep current learning rate
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {self.device}")
-        
-        if torch.cuda.is_available():
-            print(f"GPU: {torch.cuda.get_device_name(0)}")
-            print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
-        
-        self.model = self._build_model().to(self.device)
-        self.target_model = self._build_model().to(self.device)
-        self.optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=100, gamma=0.9, verbose=False)  # Disabled verbose
-        
-        # Try to load saved model
-        try:
-            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-            model_path = os.path.join(model_dir, 'worm_model.pth')
-            print(f"Attempting to load model from {model_path}")
-            
-            if not os.path.exists(model_path):
-                print(f"Model file does not exist at {model_path}")
-                print("No saved model found, starting fresh")
-                return
-                
-            checkpoint = torch.load(model_path, map_location=self.device, weights_only=True)  # Added weights_only=True
-            if checkpoint['state_size'] == state_size:
-                self.model.load_state_dict(checkpoint['model_state_dict'])
-                self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                self.epsilon = checkpoint['epsilon']
-                print(f"Successfully loaded model with epsilon: {self.epsilon:.4f}")
-                
-                # Sync target model with main model after loading
-                self.target_model.load_state_dict(self.model.state_dict())
-            else:
-                print(f"Model has wrong state size: expected {state_size}, got {checkpoint['state_size']}")
-                print("Starting fresh with new model")
-        except Exception as e:
-            print(f"Error loading model: {str(e)}")
-            print("No saved model found, starting fresh")
-            
-    def _build_model(self):
-        """Build the neural network model.
-        Architecture from saved model:
-        - Input: 14 features
-        - Hidden 1: 128 neurons
-        - Hidden 2: 128 neurons
-        - Output: 9 actions
-        """
-        return nn.Sequential(
-            nn.Linear(self.state_size, 128),  # [14 -> 128]
-            nn.ReLU(),
-            nn.Linear(128, 128),   # [128 -> 128]
-            nn.ReLU(),
-            nn.Linear(128, self.action_size)  # [128 -> 9]
-        )
-    
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
-    
-    def act(self, state):
-        if random.random() <= self.epsilon:
-            return random.randrange(self.action_size)
-        
-        with torch.no_grad():
-            state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-            act_values = self.model(state)
-            return torch.argmax(act_values).item()
-    
-    def train(self):
-        if len(self.memory) < self.batch_size:
-            return
-        
-        # Sample random batch from memory
-        minibatch = random.sample(self.memory, self.batch_size)
-        
-        # Prepare batch data
-        states = torch.FloatTensor([t[0] for t in minibatch]).to(self.device)
-        actions = torch.LongTensor([t[1] for t in minibatch]).to(self.device)
-        rewards = torch.FloatTensor([t[2] for t in minibatch]).to(self.device)
-        next_states = torch.FloatTensor([t[3] for t in minibatch]).to(self.device)
-        dones = torch.FloatTensor([t[4] for t in minibatch]).to(self.device)
-        
-        # Current Q values
-        current_q = self.model(states).gather(1, actions.unsqueeze(1))
-        
-        # Next Q values from target model
-        with torch.no_grad():
-            next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + (1 - dones) * self.gamma * next_q
-        
-        # Compute loss and update model
-        loss = F.mse_loss(current_q.squeeze(), target_q)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-        # Update epsilon
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
-        
-        return loss.item()
-    
-    def update_target_model(self):
-        self.target_model.load_state_dict(self.model.state_dict())
-    
-    def save(self, episode):
-        torch.save({
-            'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'epsilon': self.epsilon,
-            'state_size': self.state_size
-        }, f'models/saved/worm_model.pth')
-        print(f"Saved model state at episode {episode}")
-
 # ML Agent setup
-STATE_SIZE = 14  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), walls (4), hunger (1)
+STATE_SIZE = 15  # plant info (12), worm direction (2), speed (1)
 ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
@@ -1504,13 +1368,13 @@ if __name__ == "__main__":
         state = game._get_state()
         
         # Get action from agent
-        action = agent.act(state)
+        action, target_plant = agent.act(state)
         
         # Execute action and get next state
-        next_state, reward, done, _ = game.step(action)
+        next_state, reward, done, _ = game.step((action, target_plant))
         
         # Remember experience
-        agent.remember(state, action, reward, next_state, done)
+        agent.remember(state, action, target_plant, reward, next_state, done)
         
         # Train the agent
         if not args.demo:  # Only train if not in demo mode
