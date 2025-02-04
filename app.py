@@ -287,6 +287,7 @@ class WormGame:
         # Debug info
         self.last_reward = 0
         self.last_reward_source = "None"
+        self.selected_plant = None
         
     def spawn_plant(self):
         """Try to spawn a new plant if conditions are met"""
@@ -421,6 +422,17 @@ class WormGame:
         
     def step(self, action):
         """Execute one time step within the environment"""
+        # If the action is a tuple, update the selected plant based on agent's prediction
+        if isinstance(action, tuple):
+            action_val, target_plant = action
+            self.selected_plant = None
+            if hasattr(self, 'nearest_plant_indices'):
+                if target_plant < len(self.nearest_plant_indices):
+                    selected_idx = self.nearest_plant_indices[target_plant]
+                    if selected_idx != -1 and selected_idx < len(self.plants):
+                        self.selected_plant = self.plants[selected_idx]
+            action = action_val
+        
         if isinstance(action, tuple):
             action, target_plant_idx = action
         else:
