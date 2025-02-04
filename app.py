@@ -992,16 +992,19 @@ class WormGame:
                         full_travel = edge_offset * 2  # Distance from top to bottom
                         lid_progress = self.blink_state * full_travel
                         
-                        # Upper eyelid starts at top and moves down
+                        # Define a rightward offset value
+                        offset_value = self.eye_size * 0.5
+                        
+                        # Upper eyelid starts at top and moves down (apply offset_value)
                         upper_start = (
-                            eye_x + (0 * math.cos(face_angle) - edge_offset * math.sin(face_angle)),
-                            eye_y + (0 * math.sin(face_angle) + edge_offset * math.cos(face_angle))
+                            eye_x + (offset_value * math.cos(face_angle) - edge_offset * math.sin(face_angle)),
+                            eye_y + (offset_value * math.sin(face_angle) + edge_offset * math.cos(face_angle))
                         )
                         
-                        # Lower eyelid starts at bottom and moves up
+                        # Lower eyelid starts at bottom and moves up (apply offset_value)
                         lower_start = (
-                            eye_x + (0 * math.cos(face_angle) + edge_offset * math.sin(face_angle)),
-                            eye_y + (0 * math.sin(face_angle) - edge_offset * math.cos(face_angle))
+                            eye_x + (offset_value * math.cos(face_angle) + edge_offset * math.sin(face_angle)),
+                            eye_y + (offset_value * math.sin(face_angle) - edge_offset * math.cos(face_angle))
                         )
                         
                         # Calculate eyelid positions based on progress
