@@ -1393,6 +1393,10 @@ if __name__ == "__main__":
         
         if done:
             print("Game Over! Starting new episode...")
+            # Apply death penalty if worm dies early (must check BEFORE reset)
+            if game.hunger <= 0 or game.num_segments <= 1:  
+                reward += game.PENALTY_DEATH
+                print(f"Death penalty applied: {game.PENALTY_DEATH}")
             game.reset()
             
         # Increment steps
@@ -1419,10 +1423,5 @@ if __name__ == "__main__":
             wall_collisions = 0
             total_distance = 0
             game.reset()
-            
-            # Apply death penalty if worm dies early
-            if game.hunger <= 0 or game.num_segments <= 0:
-                reward += game.PENALTY_DEATH
-                print(f"Death penalty applied: {game.PENALTY_DEATH}")
             
     pygame.quit()
