@@ -1187,18 +1187,6 @@ class WormGame:
         plant_info.sort(reverse=True)
         selected_plants = plant_info[:3]
         
-        # Debug print every 60 frames
-        if self.steps_in_level % 60 == 0 and len(all_plant_info) > 3:
-            print("\nPlant Selection Debug:")
-            print("All plants (idx, dist, curr_val, future_val, score):")
-            all_plant_info.sort(key=lambda x: x[1])  # Sort by distance for comparison
-            for idx, dist, curr, fut, score in all_plant_info:
-                print(f"Plant {idx}: dist={dist:.1f}, curr={curr:.1f}, future={fut:.1f}, score={score:.1f}")
-            print("\nSelected plants (by score):")
-            for score, dist, _, curr, fut, idx in selected_plants:
-                print(f"Selected {idx}: dist={dist:.1f}, curr={curr:.1f}, future={fut:.1f}, score={score:.1f}")
-            print("-" * 50)
-        
         # If we have fewer than 3 plants, pad with dummy plants
         while len(selected_plants) < 3:
             selected_plants.append((-1000, 1000, 0, 0, 0, -1))  # -1 index for dummy plants
