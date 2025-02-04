@@ -1177,7 +1177,7 @@ class Plant:
 
     def _draw_seed(self, surface):
         """Draw the plant in seed state"""
-        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.base_size)
+        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), int(self.base_size * 0.5))
 
     def _draw_plant(self, surface):
         """Draw the mature plant"""
