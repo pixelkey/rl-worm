@@ -911,68 +911,48 @@ class WormGame:
             # Calculate pupil size
             pupil_size = self.eye_size // 2
             
-            # Find nearest plant
-            nearest_plant = None
-            min_dist = float('inf')
-            plant_x = plant_y = None
+            # Adjust pupil positions to look at the selected plant if available; if not, remain centered with expression offset
+            pupil_y_offset = self.eye_size * 0.3 * self.expression  # Expression offset
             
-            for plant in self.plants:
-                plant_rect = plant.get_bounding_box()
-                plant_center_x = plant_rect.centerx
-                plant_center_y = plant_rect.centery
-                dx = plant_center_x - x
-                dy = plant_center_y - y
-                dist = math.sqrt(dx*dx + dy*dy)
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest_plant = plant
-                    plant_x = plant_center_x
-                    plant_y = plant_center_y
-            
-            # Adjust pupil positions based on nearest plant and expression
-            pupil_y_offset = self.eye_size * 0.3 * self.expression  # Move pupils up when happy, down when sad
-            
-            # Calculate target pupil positions - start at center with expression offset
+            # Default target positions (centered with expression offset)
             target_left_x = 0
             target_left_y = pupil_y_offset
             target_right_x = 0
             target_right_y = pupil_y_offset
             
-            if nearest_plant:
-                # Calculate angles and distances from each eye to plant
-                left_dx = plant_x - left_eye_x
-                left_dy = plant_y - left_eye_y
-                right_dx = plant_x - right_eye_x
-                right_dy = plant_y - right_eye_y
+            if self.selected_plant is not None:
+                # Get the selected plant's rectangle and calculate its center
+                plant_rect = self.selected_plant.get_bounding_box()
+                plant_center_x = plant_rect.centerx
+                plant_center_y = plant_rect.centery
+                
+                # Calculate direction vectors from each eye to the plant's center
+                left_dx = plant_center_x - left_eye_x
+                left_dy = plant_center_y - left_eye_y
+                right_dx = plant_center_x - right_eye_x
+                right_dy = plant_center_y - right_eye_y
                 
                 left_dist = math.sqrt(left_dx * left_dx + left_dy * left_dy)
                 right_dist = math.sqrt(right_dx * right_dx + right_dy * right_dy)
                 
-                # Normalize direction vectors
-                left_dx /= left_dist if left_dist > 0 else 1
-                left_dy /= left_dist if left_dist > 0 else 1
-                right_dx /= right_dist if right_dist > 0 else 1
-                right_dy /= right_dist if right_dist > 0 else 1
-                
-                # Calculate distance-based convergence (closer = more convergence)
-                convergence_distance = self.head_size * 8  # Distance at which convergence starts
-                convergence = max(0, 1 - (min_dist / convergence_distance))
-                convergence *= self.max_convergence  # Scale by max convergence factor
+                # Normalize the direction vectors
+                left_dx = left_dx / left_dist if left_dist > 0 else 0
+                left_dy = left_dy / left_dist if left_dist > 0 else 0
+                right_dx = right_dx / right_dist if right_dist > 0 else 0
+                right_dy = right_dy / right_dist if right_dist > 0 else 0
                 
                 # Limit pupil movement to 60% of eye size
                 max_pupil_offset = self.eye_size * 0.6
                 
-                # Calculate base offset for each eye
                 left_base_x = left_dx * max_pupil_offset
                 left_base_y = left_dy * max_pupil_offset
                 right_base_x = right_dx * max_pupil_offset
                 right_base_y = right_dy * max_pupil_offset
                 
-                # Add convergence effect (pull pupils inward based on distance)
-                convergence_strength = convergence * self.eye_size * 0.3
-                target_left_x = left_base_x + convergence_strength
+                # Set target pupil positions based on the selected plant's direction
+                target_left_x = left_base_x
                 target_left_y = left_base_y + pupil_y_offset
-                target_right_x = right_base_x - convergence_strength
+                target_right_x = right_base_x
                 target_right_y = right_base_y + pupil_y_offset
             
             # Smoothly interpolate current positions towards targets
