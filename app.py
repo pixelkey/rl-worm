@@ -178,21 +178,22 @@ class WormGame:
         self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 100.0  # Increased to make food more rewarding
+        self.REWARD_FOOD_BASE = 350.0  # Increased to make food more rewarding
         self.REWARD_FOOD_HUNGER_SCALE = 2.0
-        self.REWARD_GROWTH = 50.0
-        self.REWARD_SMOOTH_MOVEMENT = 2.0
-        self.REWARD_EXPLORATION = 5.0
+        self.REWARD_GROWTH = 300.0
+        self.REWARD_SMOOTH_MOVEMENT = 1.5
+        self.REWARD_EXPLORATION = 20.0
         
         # Penalties
-        self.PENALTY_WALL = -50.0  # Keep strong wall collision penalty
-        self.PENALTY_WALL_STAY = -20.0  # Keep strong wall stay penalty
+        self.PENALTY_WALL = -80.0  # Keep strong wall collision penalty
+        self.PENALTY_WALL_STAY = -5.0  # Keep strong wall stay penalty
         self.wall_stay_scale = 1.2  # Keep strong scaling
         self.PENALTY_SHARP_TURN = -0.1  # Reduced to be less punishing for exploration
         self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
-        self.PENALTY_SHRINK = -25.0
+        self.PENALTY_SHRINK = -15.0
         self.PENALTY_DANGER_ZONE = -2.0  # Keep as is
         self.PENALTY_STARVATION_BASE = -1.5
+        self.PENALTY_DEATH = -500.0  # Penalty applied when the worm dies prematurely
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -1418,5 +1419,10 @@ if __name__ == "__main__":
             wall_collisions = 0
             total_distance = 0
             game.reset()
+            
+            # Apply death penalty if worm dies early
+            if game.hunger <= 0 or game.num_segments <= 0:
+                reward += game.PENALTY_DEATH
+                print(f"Death penalty applied: {game.PENALTY_DEATH}")
             
     pygame.quit()
