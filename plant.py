@@ -1132,9 +1132,12 @@ class Plant:
         
         # Draw target indicator if this is the current target
         if is_target:
-            target_radius = self.base_size * 2
-            target_color = (255, 255, 0)  # Yellow
-            pygame.draw.circle(surface, target_color, (int(self.x), int(self.y)), target_radius, 2)
+            # Discreet dot selector under the plant, updated to be larger and positioned a bit higher
+            dot_radius = 6
+            dot_color = (255, 255, 0)  # Yellow
+            dot_x = int(self.x)
+            dot_y = int(self.y + self.base_size * 0.5)
+            pygame.draw.circle(surface, dot_color, (dot_x, dot_y), dot_radius)
         
         # Only show nutritional values if we have worm position info
         if worm_x is not None and worm_y is not None and worm_speed is not None:
