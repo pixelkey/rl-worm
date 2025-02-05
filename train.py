@@ -69,9 +69,33 @@ def fast_training():
     if os.path.exists(model_path):
         print(f"Found model at: {model_path}")
         try:
+            # Create agent first so we can verify weights
+            # Initialize agent and analytics
+            STATE_SIZE = 15  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), plant_value (1), walls (4), hunger (1)
+            ACTION_SIZE = 9
+            agent = WormAgent(STATE_SIZE, ACTION_SIZE)
+            
+            # Get a sample of initial weights for verification
+            initial_weights = next(agent.model.parameters()).clone().data[0][0].item()
+            print(f"Initial model weights (sample): {initial_weights:.6f}")
+            
             model_state = torch.load(model_path)
             agent.model.load_state_dict(model_state)
-            print("Successfully loaded model weights")
+            
+            # Verify weights changed after loading
+            loaded_weights = next(agent.model.parameters()).clone().data[0][0].item()
+            print(f"Loaded model weights (sample): {loaded_weights:.6f}")
+            
+            if abs(initial_weights - loaded_weights) < 1e-6:
+                print("WARNING: Model weights appear unchanged after loading!")
+            else:
+                print("Successfully loaded model weights (verified different from initial weights)")
+                
+            # Quick prediction test
+            test_input = torch.zeros((1, STATE_SIZE)).to(agent.device)
+            initial_prediction = agent.model(test_input).argmax().item()
+            print(f"Model prediction test - action chosen: {initial_prediction}")
+            
         except Exception as e:
             print(f"Error loading model: {str(e)}")
             
@@ -92,10 +116,7 @@ def fast_training():
     progress = ProgressBar(remaining_episodes)
     start_time = time.time()
     
-    # Initialize agent and analytics
-    STATE_SIZE = 15  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), plant_value (1), walls (4), hunger (1)
-    ACTION_SIZE = 9
-    agent = WormAgent(STATE_SIZE, ACTION_SIZE)
+    # Initialize analytics
     analytics = WormAnalytics()
     
     last_time = time.time()
