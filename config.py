@@ -1,11 +1,11 @@
 # ML Agent Configuration
-STATE_SIZE = 15  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), plant_value (1), walls (4), hunger (1)
+STATE_SIZE = 20  # Updated from 15: now includes 12 values from plants + 3 for direction/speed + 4 wall distances + 1 hunger level = 20
 ACTION_SIZE = 9  # 8 directions + no movement
 
 # Training Parameters
 TRAINING_EPISODES = 1000
-STARTING_STEPS = 500
-MAX_STEPS = 2000
+STARTING_STEPS = 800
+MAX_STEPS = 6000
 STEPS_INCREMENT = 100
 PERFORMANCE_THRESHOLD = 0.8
 
@@ -40,25 +40,25 @@ MAX_LEVEL_STEPS = 2000
 LEVEL_STEPS_INCREMENT = 100
 
 # Base Reward Constants
-REWARD_FOOD_BASE = 500.0  # Base reward for eating food
-REWARD_GROWTH = 400.0  # Additional reward for growing
-PENALTY_WALL = -200.0  # Penalty for hitting wall
-PENALTY_DEATH = -1000.0  # Penalty for dying
+REWARD_FOOD_BASE = 0.5    # Base reward for eating food
+REWARD_GROWTH = 0.4       # Additional reward for growing
+PENALTY_WALL = -1.0       # Penalty for hitting wall
+PENALTY_DEATH = -2.0      # Penalty for dying
 
 # Additional Reward Modifiers
-REWARD_FOOD_HUNGER_SCALE = 2.0  # Scale food reward based on hunger
-REWARD_SMOOTH_MOVEMENT = 2.0  # Reward for smooth movement
-REWARD_EXPLORATION = 50.0  # Reward for exploring new areas
+REWARD_FOOD_HUNGER_SCALE = 1.5  # Multiplier for food reward based on hunger
+REWARD_SMOOTH_MOVEMENT = 0.05   # Reward for smooth movement
+REWARD_EXPLORATION = 0.05       # Reward for exploring new areas
 REWARD_SURVIVAL = 0.1  # Small reward for each step survived
-REWARD_DISTANCE = 1.0  # Reward for distance traveled per step
+REWARD_DISTANCE = 0.01          # Small continuous reward for distance traveled
 
 # Additional Penalties
-PENALTY_WALL_STAY = -20.0  # Penalty for staying near wall
-PENALTY_SHARP_TURN = -5.0  # Penalty for sharp turns
-PENALTY_SHRINK = -50.0  # Penalty for shrinking
-PENALTY_DANGER_ZONE = -10.0  # Penalty for being near wall
-PENALTY_STARVATION_BASE = -20.0  # Base penalty for starvation
-PENALTY_DIRECTION_CHANGE = -2.0  # Penalty for changing direction
+PENALTY_WALL_STAY = -0.5        # Penalty for staying near wall
+PENALTY_SHRINK = -0.2           # Penalty for shrinking
+PENALTY_DANGER_ZONE = -0.2      # Penalty for being near wall
+PENALTY_STARVATION_BASE = -0.5  # Penalty for starvation
+PENALTY_SHARP_TURN = -0.001       # Penalty for sharp turns
+PENALTY_DIRECTION_CHANGE = -0.002  # Penalty for changing direction
 
 # Worm Properties
 MAX_SEGMENTS = 20  # Maximum number of body segments

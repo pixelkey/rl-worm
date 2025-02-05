@@ -103,7 +103,8 @@ def fast_training():
                 global STARTING_STEPS
                 STARTING_STEPS = checkpoint_data.get('steps', STARTING_STEPS)
                 start_episode = checkpoint_data.get('episode', 0)
-                print(f"Resuming from episode {start_episode} with step count: {STARTING_STEPS}")
+                epsilon = checkpoint_data.get('epsilon', EPSILON_START)  # Load epsilon from checkpoint
+                print(f"Resuming from episode {start_episode} with step count: {STARTING_STEPS} and epsilon: {epsilon:.3f}")
         else:
             print(f"No checkpoint found at: {checkpoint_path}")
     else:
@@ -276,7 +277,8 @@ def fast_training():
                 # Save both steps and episode to checkpoint
                 checkpoint_data = {
                     'episode': episode + 1,
-                    'steps': current_steps  # Save current_steps instead of steps_per_episode
+                    'steps': current_steps,  # Save current_steps instead of steps_per_episode
+                    'epsilon': epsilon  # Save current epsilon value
                 }
                 os.makedirs(MODEL_DIR, exist_ok=True)
                 with open(CHECKPOINT_PATH, 'w') as f:

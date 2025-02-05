@@ -1258,6 +1258,16 @@ class WormGame:
             if len(points) > 1:
                 pygame.draw.lines(self.game_surface, self.pupil_color, False, points, mouth_thickness)
     
+    def _get_wall_distances(self):
+        """Get the distances to the walls from the worm's head position"""
+        head_x, head_y = self.positions[0]
+        return [
+            head_x - self.head_size,                  # Left wall
+            head_y - self.head_size,                  # Top wall
+            (self.width - head_x) - self.head_size,   # Right wall
+            (self.height - head_y) - self.head_size   # Bottom wall
+        ]
+
     def _get_state(self):
         """Get the current state of the game for the RL agent"""
         # Get head position
@@ -1310,6 +1320,19 @@ class WormGame:
             
         # Add worm's current direction and speed
         state.extend([math.cos(self.angle), math.sin(self.angle), self.speed])
+        
+        # Get wall distances and normalize them
+        walls = self._get_wall_distances()
+        normalized_walls = [
+            (walls[0]/self.width) * 10.0,  # Left wall
+            (walls[1]/self.height) * 10.0,  # Top wall 
+            (walls[2]/self.width) * 10.0,   # Right wall
+            (walls[3]/self.height) * 10.0   # Bottom wall
+        ]
+        state.extend(normalized_walls)
+        
+        # Add hunger level
+        state.append(self.hunger / self.max_hunger)
         
         return np.array(state)
         
