@@ -79,8 +79,8 @@ def fast_training():
             initial_weights = next(agent.model.parameters()).clone().data[0][0].item()
             print(f"Initial model weights (sample): {initial_weights:.6f}")
             
-            model_state = torch.load(model_path)
-            agent.model.load_state_dict(model_state)
+            # Use agent's built-in load method
+            agent.load()
             
             # Verify weights changed after loading
             loaded_weights = next(agent.model.parameters()).clone().data[0][0].item()
@@ -91,11 +91,13 @@ def fast_training():
             else:
                 print("Successfully loaded model weights (verified different from initial weights)")
                 
-            # Quick prediction test
+            # Quick prediction test with both outputs
             test_input = torch.zeros((1, STATE_SIZE)).to(agent.device)
-            initial_prediction = agent.model(test_input).argmax().item()
-            print(f"Model prediction test - action chosen: {initial_prediction}")
-            
+            action_output, target_output = agent.model(test_input)
+            initial_action = action_output.argmax().item()
+            initial_target = target_output.argmax().item()
+            print(f"Model prediction test - action: {initial_action}, target: {initial_target}")
+
         except Exception as e:
             print(f"Error loading model: {str(e)}")
             
@@ -242,6 +244,7 @@ def fast_training():
             
             # Save model periodically
             if episode % SAVE_INTERVAL == 0:
+                # Use agent's built-in save method
                 agent.save(episode)
                 # Save both steps and episode to checkpoint
                 with open(checkpoint_path, 'w') as f:
