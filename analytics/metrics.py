@@ -20,20 +20,23 @@ class WormAnalytics:
             'timestamp': [],
             'avg_reward': [],
             'wall_collisions': [],
+            'wall_stays': [],
+            'danger_zone_count': [],
             'exploration_ratio': [],
             'movement_smoothness': [],
-            'epsilon': []
+            'epsilon': [],
+            'deaths_by_starvation': [],  # Track deaths by starvation
+            'deaths_by_wall': [],        # Track deaths by wall collision
+            'death_penalty_total': []    # Track total death penalty per episode
         }
         
     def update_metrics(self, episode, metrics):
         """Update metrics with new values"""
         self.metrics['episode'].append(episode)
         self.metrics['timestamp'].append(datetime.now())
-        self.metrics['avg_reward'].append(metrics.get('avg_reward', 0))
-        self.metrics['wall_collisions'].append(metrics.get('wall_collisions', 0))
-        self.metrics['exploration_ratio'].append(metrics.get('exploration_ratio', 0))
-        self.metrics['movement_smoothness'].append(metrics.get('movement_smoothness', 0))
-        self.metrics['epsilon'].append(metrics.get('epsilon', 0))
+        for key in metrics:
+            if key in self.metrics:
+                self.metrics[key].append(metrics[key])
         
     def generate_report(self, episode_number):
         """Generate an HTML report with interactive plots"""
@@ -169,6 +172,40 @@ class WormAnalytics:
         summary_path = report_path.replace('.html', '_summary.html')
         summary_stats.to_html(summary_path)
 
+        print("\nTraining Report")
+        print("-" * 50)
+        
+        # Calculate averages over last N episodes
+        window = min(100, len(self.metrics['avg_reward']))
+        
+        # Reward metrics
+        avg_reward = np.mean(self.metrics['avg_reward'][-window:])
+        print(f"\nReward Metrics (last {window} episodes):")
+        print(f"Average Reward: {avg_reward:.2f}")
+        
+        # Death statistics
+        print("\nDeath Statistics:")
+        if len(self.metrics['deaths_by_starvation']) > 0:
+            starvation_deaths = np.sum(self.metrics['deaths_by_starvation'][-window:])
+            wall_deaths = np.sum(self.metrics['deaths_by_wall'][-window:])
+            total_deaths = starvation_deaths + wall_deaths
+            print(f"Total Deaths: {total_deaths}")
+            print(f"Deaths by Starvation: {starvation_deaths} ({(starvation_deaths/total_deaths*100):.1f}%)")
+            print(f"Deaths by Wall Collision: {wall_deaths} ({(wall_deaths/total_deaths*100):.1f}%)")
+            print(f"Average Death Penalty: {np.mean(self.metrics['death_penalty_total'][-window:]):.2f}")
+        
+        # Movement metrics
+        print("\nMovement Metrics:")
+        print(f"Wall Collisions: {np.mean(self.metrics['wall_collisions'][-window:]):.2f}")
+        print(f"Wall Stays: {np.mean(self.metrics['wall_stays'][-window:]):.2f}")
+        print(f"Danger Zone Count: {np.mean(self.metrics['danger_zone_count'][-window:]):.2f}")
+        print(f"Movement Smoothness: {np.mean(self.metrics['movement_smoothness'][-window:]):.2f}")
+        
+        # Exploration metrics
+        print("\nExploration Metrics:")
+        print(f"Exploration Ratio: {np.mean(self.metrics['exploration_ratio'][-window:]):.2f}")
+        print(f"Current Epsilon: {self.metrics['epsilon'][-1]:.3f}")
+        
         return report_path
 
     def plot_heatmap(self, positions_history, dimensions, episode_number):

@@ -121,6 +121,7 @@ def fast_training():
     last_time = time.time()
     
     try:
+        current_steps = STARTING_STEPS
         for episode in range(start_episode, TRAINING_EPISODES):
             # Initialize game state
             game = WormGame(headless=True)
@@ -145,9 +146,8 @@ def fast_training():
             training_time = 0
             game_time = 0
             
-            steps_per_episode = STARTING_STEPS + (episode * STEPS_INCREMENT)  # Add increment each episode
-            if steps_per_episode > MAX_STEPS:
-                steps_per_episode = MAX_STEPS
+            # Use current_steps instead of calculating based on episode
+            steps_per_episode = min(current_steps, MAX_STEPS)
             
             for step in range(steps_per_episode):
                 step_start = time.time()
@@ -223,8 +223,25 @@ def fast_training():
                 if done:
                     break
             
+            # Only increment steps if worm survived the full episode
+            if steps_survived >= steps_per_episode:
+                current_steps += STEPS_INCREMENT
+                print(f"\nWorm survived full episode! Increasing steps to: {current_steps}")
+            
             # Calculate metrics
             exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
+            
+            # Track death statistics
+            death_penalty_total = 0
+            deaths_by_starvation = 0
+            deaths_by_wall = 0
+            
+            if game.death_cause == "starvation":
+                deaths_by_starvation = 1
+                death_penalty_total += game.PENALTY_DEATH
+            elif game.death_cause == "wall_collision":
+                deaths_by_wall = 1
+                death_penalty_total += game.PENALTY_DEATH
             
             # Update analytics
             metrics = {
@@ -234,7 +251,10 @@ def fast_training():
                 'danger_zone_count': danger_zone_count,
                 'exploration_ratio': exploration_ratio,
                 'movement_smoothness': steps_survived / steps_per_episode,
-                'epsilon': agent.epsilon
+                'epsilon': agent.epsilon,
+                'deaths_by_starvation': deaths_by_starvation,
+                'deaths_by_wall': deaths_by_wall,
+                'death_penalty_total': death_penalty_total
             }
             
             analytics.update_metrics(episode, metrics)
@@ -246,7 +266,7 @@ def fast_training():
                 # Save both steps and episode to checkpoint
                 checkpoint_data = {
                     'episode': episode + 1,
-                    'steps': steps_per_episode
+                    'steps': current_steps  # Save current_steps instead of steps_per_episode
                 }
                 os.makedirs(MODEL_DIR, exist_ok=True)
                 with open(CHECKPOINT_PATH, 'w') as f:
@@ -267,6 +287,8 @@ def fast_training():
                 print(f"Wall: {wall_collisions} hits, {wall_stays} stays, {danger_zone_count} nears")
                 print(f"Movement: {smooth_movements} (Sharp: {sharp_turns}, Dir: {direction_changes})")
                 print(f"Health: {shrink_count} shrinks, {starvation_count} starves")
+                if game.death_cause:
+                    print(f"Death Cause: {game.death_cause}")
                 print(f"Explore: {exploration_ratio:.2f} ({exploration_rewards} rewards)")
                 print(f"Epsilon: {agent.epsilon:.3f}")
                 print(f"Episode Time: {episode_time:.2f}s")
