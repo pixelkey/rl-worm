@@ -32,7 +32,10 @@ from config import (
     # Plant Properties
     MIN_PLANTS, MAX_PLANTS, PLANT_SPAWN_CHANCE,
     # Display
-    SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+    SCREEN_WIDTH, SCREEN_HEIGHT, FPS,
+    REWARD_SURVIVAL,
+    # Model Paths
+    MODEL_PATH, MODEL_DIR
 )
 
 # Parse command line arguments
@@ -1457,6 +1460,48 @@ if __name__ == "__main__":
     # Main game loop
     running = True
     clock = pygame.time.Clock()
+    use_ai_control = True  # Default to AI control
+    
+    # Try to load the trained model with verification
+    if os.path.exists(MODEL_PATH):
+        print(f"\nFound model at: {MODEL_PATH}")
+        try:
+            # Get a sample of initial weights for verification
+            initial_weights = next(agent.model.parameters()).clone().data[0][0].item()
+            print(f"Initial model weights (sample): {initial_weights:.6f}")
+            
+            # Load the model
+            agent.load_model = True
+            agent.epsilon = 0.01  # Very little exploration in play mode
+            agent.load()
+            
+            # Verify weights changed after loading
+            loaded_weights = next(agent.model.parameters()).clone().data[0][0].item()
+            print(f"Loaded model weights (sample): {loaded_weights:.6f}")
+            
+            if abs(initial_weights - loaded_weights) < 1e-6:
+                print("WARNING: Model weights appear unchanged after loading!")
+                print("Using keyboard control (arrow keys or WASD)")
+                use_ai_control = False
+            else:
+                print("Successfully loaded model weights (verified different from initial weights)")
+                
+                # Quick prediction test
+                test_input = torch.zeros((1, STATE_SIZE)).to(agent.device)
+                action_output, target_output = agent.model(test_input)
+                initial_action = action_output.argmax().item()
+                initial_target = target_output.argmax().item()
+                print(f"Model prediction test - action: {initial_action}, target: {initial_target}")
+                print("\nUsing AI control - press SPACE to toggle between AI and keyboard control")
+                
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            print("Using keyboard control (arrow keys or WASD)")
+            use_ai_control = False
+    else:
+        print(f"\nNo model found at: {MODEL_PATH}")
+        print("Using keyboard control (arrow keys or WASD)")
+        use_ai_control = False
     
     while running:
         # Handle events
@@ -1466,6 +1511,9 @@ if __name__ == "__main__":
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     running = False
+                elif event.key == pygame.K_SPACE:
+                    use_ai_control = not use_ai_control
+                    print("Toggled AI control")
         
         # Get keyboard input
         keys = pygame.key.get_pressed()
@@ -1479,6 +1527,11 @@ if __name__ == "__main__":
             action = 2  # Speed up
         elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
             action = 3  # Slow down
+        
+        # Use AI control if enabled
+        if use_ai_control:
+            state = game._get_state()
+            action = agent.act(state)  # Changed from get_action to act
         
         # Update game state
         state, reward, done, info = game.step(action)

@@ -24,23 +24,24 @@ MAX_LEVEL_STEPS = 20000  # Maximum steps per level
 LEVEL_STEPS_INCREMENT = 1000  # Steps increase per level
 
 # Base Reward Constants
-REWARD_FOOD_BASE = 350.0  # Increased to make food more rewarding
-REWARD_GROWTH = 300.0  # Reward for growing
-PENALTY_WALL = -80.0  # Keep strong wall collision penalty
-PENALTY_DEATH = -500.0  # Penalty for dying (starvation or no segments)
+REWARD_FOOD_BASE = 500.0  # Increased from 350 to make food more rewarding
+REWARD_GROWTH = 400.0  # Increased from 300
+PENALTY_WALL = -200.0  # Increased from -80 to make walls more punishing
+PENALTY_DEATH = -1000.0  # Increased from -500 to make death more punishing
 
 # Additional Reward Modifiers
 REWARD_FOOD_HUNGER_SCALE = 2.0  # Scale factor for food reward based on hunger
-REWARD_SMOOTH_MOVEMENT = 1.5  # Reward for smooth movement
-REWARD_EXPLORATION = 20.0  # Reward for exploring new areas
+REWARD_SMOOTH_MOVEMENT = 2.0  # Increased from 1.5
+REWARD_EXPLORATION = 50.0  # Increased from 20 to encourage exploration
+REWARD_SURVIVAL = 0.1  # Small positive reward for each step survived
 
 # Additional Penalties
-PENALTY_WALL_STAY = -5.0  # Keep strong wall stay penalty
-PENALTY_SHARP_TURN = -0.1  # Small penalty for sharp turns to encourage smooth movement
-PENALTY_DIRECTION_CHANGE = -0.05  # Small penalty for changing direction to encourage smooth movement
-PENALTY_SHRINK = -15.0  # Penalty for shrinking
-PENALTY_DANGER_ZONE = -2.0  # Keep as is
-PENALTY_STARVATION_BASE = -1.5  # Base penalty for starvation
+PENALTY_WALL_STAY = -20.0  # Increased from -5 to discourage wall hugging
+PENALTY_SHARP_TURN = -0.5  # Increased from -0.1
+PENALTY_DIRECTION_CHANGE = -0.2  # Increased from -0.05
+PENALTY_SHRINK = -50.0  # Increased from -15
+PENALTY_DANGER_ZONE = -10.0  # Increased from -2 to make wall proximity more punishing
+PENALTY_STARVATION_BASE = -2.0  # Increased from -1.5
 
 # Worm Properties
 MAX_SEGMENTS = 30  # Maximum number of body segments
