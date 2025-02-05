@@ -19,7 +19,8 @@ from config import (
     STATE_SIZE, ACTION_SIZE,
     TRAINING_EPISODES, STARTING_STEPS, MAX_STEPS, STEPS_INCREMENT,
     PERFORMANCE_THRESHOLD, SAVE_INTERVAL, PRINT_INTERVAL,
-    MODEL_DIR, MODEL_PATH, CHECKPOINT_PATH
+    MODEL_DIR, MODEL_PATH, CHECKPOINT_PATH,
+    EPSILON_START, EPSILON_FINAL, EPSILON_DECAY
 )
 
 # Set up environment variables for display
@@ -123,6 +124,8 @@ def fast_training():
     try:
         current_steps = STARTING_STEPS
         for episode in range(start_episode, TRAINING_EPISODES):
+            epsilon = max(EPSILON_FINAL, EPSILON_START * (EPSILON_DECAY ** episode))
+            print(f"Episode {episode+1}/{TRAINING_EPISODES}, Epsilon: {epsilon:.3f}")
             # Initialize game state
             game = WormGame(headless=True)
             state = game.reset()
@@ -153,7 +156,7 @@ def fast_training():
                 step_start = time.time()
                 
                 # Get action from agent
-                action, target_plant = agent.act(state)
+                action, target_plant = agent.act(state, epsilon)
                 
                 # Execute action in environment
                 next_state, reward, done, info = game.step((action, target_plant))
@@ -228,6 +231,13 @@ def fast_training():
                 current_steps += STEPS_INCREMENT
                 print(f"\nWorm survived full episode! Increasing steps to: {current_steps}")
             
+            # Check if the worm completes the max number of steps
+            if steps_survived >= MAX_STEPS:
+                print(f"\nWorm completed max steps in episode {episode}. Saving model...")
+                agent.save(episode)
+                analytics.generate_report(episode)
+                break
+            
             # Calculate metrics
             exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
             
@@ -251,7 +261,7 @@ def fast_training():
                 'danger_zone_count': danger_zone_count,
                 'exploration_ratio': exploration_ratio,
                 'movement_smoothness': steps_survived / steps_per_episode,
-                'epsilon': agent.epsilon,
+                'epsilon': epsilon,
                 'deaths_by_starvation': deaths_by_starvation,
                 'deaths_by_wall': deaths_by_wall,
                 'death_penalty_total': death_penalty_total
@@ -290,7 +300,7 @@ def fast_training():
                 if game.death_cause:
                     print(f"Death Cause: {game.death_cause}")
                 print(f"Explore: {exploration_ratio:.2f} ({exploration_rewards} rewards)")
-                print(f"Epsilon: {agent.epsilon:.3f}")
+                print(f"Epsilon: {epsilon:.3f}")
                 print(f"Episode Time: {episode_time:.2f}s")
                 print(f"Game Time: {game_time:.2f}s")
                 print(f"Training Time: {training_time:.2f}s")

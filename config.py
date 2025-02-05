@@ -4,10 +4,14 @@ ACTION_SIZE = 9  # 8 directions + no movement
 
 # Training Parameters
 TRAINING_EPISODES = 1000
-STARTING_STEPS = 1000
-MAX_STEPS = 6000
+STARTING_STEPS = 500
+MAX_STEPS = 2000
 STEPS_INCREMENT = 100
 PERFORMANCE_THRESHOLD = 0.8
+
+EPSILON_START = 1.0
+EPSILON_FINAL = 0.01
+EPSILON_DECAY = 0.995
 
 # Exploration Parameters
 EPSILON = 0.2  # Starting exploration rate
@@ -46,6 +50,7 @@ REWARD_FOOD_HUNGER_SCALE = 2.0  # Scale food reward based on hunger
 REWARD_SMOOTH_MOVEMENT = 2.0  # Reward for smooth movement
 REWARD_EXPLORATION = 50.0  # Reward for exploring new areas
 REWARD_SURVIVAL = 0.1  # Small reward for each step survived
+REWARD_DISTANCE = 1.0  # Reward for distance traveled per step
 
 # Additional Penalties
 PENALTY_WALL_STAY = -20.0  # Penalty for staying near wall

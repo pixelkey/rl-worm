@@ -69,9 +69,9 @@ class WormAgent:
         
         self.memory.append((state, action, target, normalized_reward, next_state, done))
     
-    def act(self, state):
-        """Choose an action and target plant based on state"""
-        if random.random() <= self.epsilon:
+    def act(self, state, epsilon):
+        """Choose an action and target plant based on state, using the provided epsilon for exploration."""
+        if random.random() <= epsilon:
             action = random.randrange(self.action_size)
             target_plant = random.randrange(3)
             return action, target_plant

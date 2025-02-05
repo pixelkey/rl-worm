@@ -19,7 +19,7 @@ from config import (
     # Base Rewards
     REWARD_FOOD_BASE, REWARD_GROWTH, PENALTY_WALL, PENALTY_DEATH,
     # Additional Rewards
-    REWARD_FOOD_HUNGER_SCALE, REWARD_SMOOTH_MOVEMENT, REWARD_EXPLORATION,
+    REWARD_FOOD_HUNGER_SCALE, REWARD_SMOOTH_MOVEMENT, REWARD_EXPLORATION, REWARD_DISTANCE,
     # Additional Penalties
     PENALTY_WALL_STAY, PENALTY_SHARP_TURN, PENALTY_SHRINK,
     PENALTY_DANGER_ZONE, PENALTY_STARVATION_BASE, PENALTY_DIRECTION_CHANGE,
@@ -229,6 +229,7 @@ class WormGame:
         self.REWARD_FOOD_HUNGER_SCALE = REWARD_FOOD_HUNGER_SCALE
         self.REWARD_SMOOTH_MOVEMENT = REWARD_SMOOTH_MOVEMENT
         self.REWARD_EXPLORATION = REWARD_EXPLORATION
+        self.REWARD_DISTANCE = REWARD_DISTANCE  # Reward for distance traveled
         
         # Penalties
         self.PENALTY_WALL_STAY = PENALTY_WALL_STAY  # Keep strong wall stay penalty
@@ -551,6 +552,10 @@ class WormGame:
         if abs(self.x - old_pos[0]) > self.head_size or abs(self.y - old_pos[1]) > self.head_size:
             reward += self.REWARD_EXPLORATION
             self.last_reward_source = f"Exploration ({self.REWARD_EXPLORATION})"
+        
+        # Reward distance traveled
+        distance = math.sqrt((new_head_x - old_pos[0])**2 + (new_head_y - old_pos[1])**2)
+        reward += self.REWARD_DISTANCE * distance
         
         # Wall collision handling with bounce
         wall_collision = False
@@ -1531,7 +1536,7 @@ if __name__ == "__main__":
         # Use AI control if enabled
         if use_ai_control:
             state = game._get_state()
-            action = agent.act(state)  # Changed from get_action to act
+            action, target_plant = agent.act(state, agent.epsilon)  # Pass epsilon parameter
         
         # Update game state
         state, reward, done, info = game.step(action)
