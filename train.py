@@ -121,6 +121,7 @@ def fast_training():
     last_time = time.time()
     
     try:
+        current_steps = STARTING_STEPS
         for episode in range(start_episode, TRAINING_EPISODES):
             # Initialize game state
             game = WormGame(headless=True)
@@ -145,9 +146,8 @@ def fast_training():
             training_time = 0
             game_time = 0
             
-            steps_per_episode = STARTING_STEPS + (episode * STEPS_INCREMENT)  # Add increment each episode
-            if steps_per_episode > MAX_STEPS:
-                steps_per_episode = MAX_STEPS
+            # Use current_steps instead of calculating based on episode
+            steps_per_episode = min(current_steps, MAX_STEPS)
             
             for step in range(steps_per_episode):
                 step_start = time.time()
@@ -223,6 +223,11 @@ def fast_training():
                 if done:
                     break
             
+            # Only increment steps if worm survived the full episode
+            if steps_survived >= steps_per_episode:
+                current_steps += STEPS_INCREMENT
+                print(f"\nWorm survived full episode! Increasing steps to: {current_steps}")
+            
             # Calculate metrics
             exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
             
@@ -261,7 +266,7 @@ def fast_training():
                 # Save both steps and episode to checkpoint
                 checkpoint_data = {
                     'episode': episode + 1,
-                    'steps': steps_per_episode
+                    'steps': current_steps  # Save current_steps instead of steps_per_episode
                 }
                 os.makedirs(MODEL_DIR, exist_ok=True)
                 with open(CHECKPOINT_PATH, 'w') as f:
