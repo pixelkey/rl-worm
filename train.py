@@ -226,6 +226,18 @@ def fast_training():
             # Calculate metrics
             exploration_ratio = len(episode_positions) / (steps_survived * 0.25)  
             
+            # Track death statistics
+            death_penalty_total = 0
+            deaths_by_starvation = 0
+            deaths_by_wall = 0
+            
+            if game.death_cause == "starvation":
+                deaths_by_starvation = 1
+                death_penalty_total += game.PENALTY_DEATH
+            elif game.death_cause == "wall_collision":
+                deaths_by_wall = 1
+                death_penalty_total += game.PENALTY_DEATH
+            
             # Update analytics
             metrics = {
                 'avg_reward': total_reward,
@@ -234,7 +246,10 @@ def fast_training():
                 'danger_zone_count': danger_zone_count,
                 'exploration_ratio': exploration_ratio,
                 'movement_smoothness': steps_survived / steps_per_episode,
-                'epsilon': agent.epsilon
+                'epsilon': agent.epsilon,
+                'deaths_by_starvation': deaths_by_starvation,
+                'deaths_by_wall': deaths_by_wall,
+                'death_penalty_total': death_penalty_total
             }
             
             analytics.update_metrics(episode, metrics)
@@ -267,6 +282,8 @@ def fast_training():
                 print(f"Wall: {wall_collisions} hits, {wall_stays} stays, {danger_zone_count} nears")
                 print(f"Movement: {smooth_movements} (Sharp: {sharp_turns}, Dir: {direction_changes})")
                 print(f"Health: {shrink_count} shrinks, {starvation_count} starves")
+                if game.death_cause:
+                    print(f"Death Cause: {game.death_cause}")
                 print(f"Explore: {exploration_ratio:.2f} ({exploration_rewards} rewards)")
                 print(f"Epsilon: {agent.epsilon:.3f}")
                 print(f"Episode Time: {episode_time:.2f}s")

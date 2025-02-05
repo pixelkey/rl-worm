@@ -159,6 +159,13 @@ class WormGame:
         self.shrink_cooldown = 60
         self.shrink_timer = 0
         
+        # Health mechanics
+        self.max_health = 100
+        self.health = self.max_health
+        self.damage_per_hit = 20  # 5 hits to die
+        self.health_critical_threshold = 30  # Below this is critical
+        self.health_warning_threshold = 60  # Below this shows warning
+        
         # Plant management
         self.min_plants = MIN_PLANTS
         self.max_plants = MAX_PLANTS
@@ -322,6 +329,7 @@ class WormGame:
         self.last_reward = 0
         self.last_reward_source = "None"
         self.selected_plant = None
+        self.death_cause = None  # Track the cause of death
         
     def spawn_plant(self):
         """Try to spawn a new plant if conditions are met"""
@@ -424,39 +432,42 @@ class WormGame:
 
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
-        old_hunger = self.hunger
-        old_segments = self.num_segments
-        self.hunger = max(0, self.hunger - self.current_hunger_rate)
+        self.hunger -= self.current_hunger_rate
         
-        # Update shrink timer
-        if self.shrink_timer > 0:
-            self.shrink_timer -= 1
+        if self.hunger <= 0:
+            self.hunger = 0
+            # When starving, reduce health
+            self.health = max(0, self.health - self.damage_per_hit)
+            if self.health <= 0:
+                self.death_cause = "starvation"
+                self.last_reward_source = f"Death (Starvation) ({self.PENALTY_DEATH})"
+                return False, False
+            return True, False
         
-        # Calculate shrinking based on hunger level
-        hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
+        # Handle shrinking
+        if self.hunger < self.shrink_hunger_threshold and self.shrink_timer <= 0:
             if self.num_segments > self.min_segments:
-                # Show sad expression when shrinking
-                self.set_expression(-1.0, 1.5)  # Very sad, strong magnitude
-                # Remove last segment
                 self.num_segments -= 1
-                if len(self.positions) > self.num_segments:
-                    self.positions.pop()
-                    self.body_colors.pop()
-                # Set cooldown
                 self.shrink_timer = self.shrink_cooldown
-                # Return shrink occurred
-                return self.hunger > 0 and self.num_segments > 0, True
-            elif old_hunger > 0 and self.hunger == 0:
+                return True, True
+            elif self.num_segments == self.min_segments:
                 # Show very sad expression when at minimum size and starving
                 self.set_expression(-1.0, 2.0)  # Very sad, strongest magnitude
         
-        # Die if no segments left or hunger is zero
-        return self.hunger > 0 and self.num_segments > 0, False
-        
+        return True, False
+
+    def is_alive(self):
+        """Check if the worm is still alive"""
+        return self.health > 0 and self.hunger > 0
+
     def step(self, action):
         """Execute one time step within the environment"""
-        # If the action is a tuple, update the selected plant based on agent's prediction
+        reward = 0
+        self.steps_in_level += 1
+        
+        # Reset death cause at start of step
+        self.death_cause = None
+        
         if isinstance(action, tuple):
             action_val, target_plant = action
             self.selected_plant = None
@@ -486,7 +497,6 @@ class WormGame:
         prev_action = self.prev_action
         
         # Calculate reward
-        reward = 0
         angle_diff = 0  # Initialize angle_diff
         
         # Execute action and update target angle
@@ -559,6 +569,16 @@ class WormGame:
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             
+            # Reduce health from wall collision
+            self.health = max(0, self.health - self.damage_per_hit)
+            if self.health <= 0:
+                self.death_cause = "wall_collision"
+                reward += self.PENALTY_DEATH
+                self.last_reward_source = f"Death (Wall Collision) ({self.PENALTY_DEATH})"
+            else:
+                reward += self.PENALTY_WALL
+                self.last_reward_source = f"Wall Hit (-{self.damage_per_hit} health)"
+            
             # Bounce off walls by reversing velocity components
             if new_head_x - self.head_size < 0:  # Left wall
                 new_head_x = self.head_size + abs(new_head_x - self.head_size)
@@ -580,6 +600,7 @@ class WormGame:
             
             self.wall_stay_count = self.wall_stay_count + self.wall_stay_increment
             self.last_reward_source = f"Wall Collision ({self.PENALTY_WALL})"
+            self.death_cause = "wall_collision"  # Record death by wall collision
         
         # Update position
         self.x = new_head_x
@@ -627,6 +648,9 @@ class WormGame:
         
         # Update hunger and check if shrink occurred
         alive, did_shrink = self.update_hunger()
+        
+        # Check if worm is still alive
+        done = not self.is_alive()
         
         # Calculate reward using Maslow's hierarchy
         if ate_plant:
@@ -718,9 +742,10 @@ class WormGame:
         new_state = self._get_state()
         
         # Return state with additional info
-        return new_state, reward, not alive, {
+        return new_state, reward, done, {
             'ate_plant': ate_plant,
-            'wall_collision': wall_collision
+            'wall_collision': wall_collision,
+            'death_cause': self.death_cause
         }
     
     def draw(self, surface=None):
@@ -862,6 +887,35 @@ class WormGame:
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = progress_y + meter_height//2
+        surface.blit(text_surface, text_rect)
+        
+        # Draw health meter with color gradient
+        health_y = progress_y + meter_height + padding
+        pygame.draw.rect(surface, (100, 100, 100),
+                       (meter_x, health_y, meter_width, meter_height))
+        
+        # Calculate health bar color (green -> yellow -> red)
+        health_ratio = self.health / self.max_health
+        if health_ratio > 0.6:  # Above warning threshold - green to yellow
+            r = int(255 * (1 - health_ratio) * 1.67)  # Starts at 0, goes to 255
+            g = 255
+            b = 0
+        else:  # Below warning threshold - yellow to red
+            r = 255
+            g = int(255 * (health_ratio / 0.6))  # Starts at 255, goes to 0
+            b = 0
+        
+        # Draw health fill
+        fill_width = int((meter_width - 2) * health_ratio)
+        pygame.draw.rect(surface, (r, g, b),
+                       (meter_x+1, health_y+1, fill_width, meter_height-2))
+        
+        # Draw "Health" label
+        health_text = "Health"
+        text_surface = font.render(health_text, True, (200, 200, 200))
+        text_rect = text_surface.get_rect()
+        text_rect.right = meter_x - padding
+        text_rect.centery = health_y + meter_height//2
         surface.blit(text_surface, text_rect)
         
         # Draw stats in top-left corner
@@ -1264,6 +1318,9 @@ class WormGame:
         # Start with low hunger (30% of max) to encourage immediate food seeking
         self.hunger = self.max_hunger * 0.3
         
+        # Reset health
+        self.health = self.max_health
+        
         # Clear and respawn plants
         self.plants = []
         self.target_plants = random.randint(self.min_plants, self.max_plants)
@@ -1285,36 +1342,30 @@ class WormGame:
         
     def update_hunger(self):
         """Update hunger and return whether worm is still alive"""
-        old_hunger = self.hunger
-        old_segments = self.num_segments
-        self.hunger = max(0, self.hunger - self.current_hunger_rate)
+        self.hunger -= self.current_hunger_rate
         
-        # Update shrink timer
-        if self.shrink_timer > 0:
-            self.shrink_timer -= 1
+        if self.hunger <= 0:
+            self.hunger = 0
+            # When starving, reduce health
+            self.health = max(0, self.health - self.damage_per_hit)
+            if self.health <= 0:
+                self.death_cause = "starvation"
+                self.last_reward_source = f"Death (Starvation) ({self.PENALTY_DEATH})"
+                return False, False
+            return True, False
         
-        # Calculate shrinking based on hunger level
-        hunger_ratio = self.hunger / self.max_hunger
-        if hunger_ratio < self.shrink_hunger_threshold and self.shrink_timer == 0:
+        # Handle shrinking
+        if self.hunger < self.shrink_hunger_threshold and self.shrink_timer <= 0:
             if self.num_segments > self.min_segments:
-                # Show sad expression when shrinking
-                self.set_expression(-1.0, 1.5)  # Very sad, strong magnitude
-                # Remove last segment
                 self.num_segments -= 1
-                if len(self.positions) > self.num_segments:
-                    self.positions.pop()
-                    self.body_colors.pop()
-                # Set cooldown
                 self.shrink_timer = self.shrink_cooldown
-                # Return shrink occurred
-                return self.hunger > 0 and self.num_segments > 0, True
-            elif old_hunger > 0 and self.hunger == 0:
+                return True, True
+            elif self.num_segments == self.min_segments:
                 # Show very sad expression when at minimum size and starving
                 self.set_expression(-1.0, 2.0)  # Very sad, strongest magnitude
         
-        # Die if no segments left or hunger is zero
-        return self.hunger > 0 and self.num_segments > 0, False
-        
+        return True, False
+
     def set_expression(self, target, magnitude):
         """Set the target expression and magnitude"""
         self.target_expression = target
@@ -1389,77 +1440,52 @@ if __name__ == "__main__":
     game = WormGame(headless=False)  # Regular display mode for direct running
     
     # Main game loop
-    clock = pygame.time.Clock()
     running = True
+    clock = pygame.time.Clock()
+    
     while running:
-        clock.tick(FPS)
-        
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-                
-        # Get current state
-        state = game._get_state()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
         
-        # Get action from agent
-        action, target_plant = agent.act(state)
+        # Get keyboard input
+        keys = pygame.key.get_pressed()
+        action = 4  # Default to no movement
         
-        # Execute action and get next state
-        next_state, reward, done, _ = game.step((action, target_plant))
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+            action = 0  # Turn left
+        elif keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+            action = 1  # Turn right
+        elif keys[pygame.K_UP] or keys[pygame.K_w]:
+            action = 2  # Speed up
+        elif keys[pygame.K_DOWN] or keys[pygame.K_s]:
+            action = 3  # Slow down
         
-        # Remember experience
-        agent.remember(state, action, target_plant, reward, next_state, done)
+        # Update game state
+        state, reward, done, info = game.step(action)
         
-        # Train the agent
-        if not args.demo:  # Only train if not in demo mode
-            loss = agent.train()
-            
-            # Update target network periodically
-            if steps_in_episode % 100 == 0:
-                agent.update_target_model()
-                
-        # Draw everything
-        game.draw()
-        
+        # If worm died, reset the game after a short delay
         if done:
-            print("Game Over! Starting new episode...")
-            
-            # Log current health metrics before game reset
-            print(f"Episode ending; starvation_counter = {game.starvation_counter}, num_segments = {game.num_segments}")
-            
-            # Apply death penalty if conditions are met
-            if game.starvation_counter >= MAX_STARVATION or game.num_segments <= 1:
-                reward += game.PENALTY_DEATH
-                print(f"DEATH PENALTY TRIGGERED! Starvation: {game.starvation_counter}/{MAX_STARVATION}, Segments: {game.num_segments}")
+            if game.death_cause == "starvation":
+                print("Worm died from starvation! Resetting game...")
             else:
-                print(f"Normal episode end. Starvation: {game.starvation_counter}/{MAX_STARVATION}, Segments: {game.num_segments}")
-            
-            game.reset()
-            
-        # Increment steps
-        steps_in_episode += 1
+                print("Worm died from wall collision! Resetting game...")
+            pygame.time.wait(1000)  # Wait 1 second before reset
+            game.reset()  # Reset the game
+            continue
         
-        # Check if episode should end
-        if steps_in_episode >= MAX_STEPS:
-            # Save the model state every 5 episodes
-            if episode % 5 == 0:
-                agent.save(episode)
-                print(f"Saved model state at episode {episode}")
-            
-            # Generate analytics report every 10 episodes
-            if episode % 10 == 0:
-                report_path = analytics.generate_report(episode)
-                heatmap_path = analytics.plot_heatmap(positions_history, (game.width, game.height), episode)
-                print(f"Generated report: {report_path}")
-                print(f"Generated heatmap: {heatmap_path}")
-            
-            # Reset episode
-            episode += 1
-            steps_in_episode = 0
-            positions_history = []
-            wall_collisions = 0
-            total_distance = 0
-            game.reset()
+        # Draw game state
+        game.draw()
+        if not game.headless:
+            # Copy game surface to screen
+            game.screen.blit(game.game_surface, (game.game_x_offset, game.game_y_offset))
+            pygame.display.flip()
+        
+        # Cap the frame rate
+        clock.tick(60)
     
     pygame.quit()
