@@ -40,10 +40,10 @@ MAX_LEVEL_STEPS = 2000
 LEVEL_STEPS_INCREMENT = 100
 
 # Base Reward Constants
-REWARD_FOOD_BASE = 0.5    # Base reward for eating food
+REWARD_FOOD_BASE = 1.0    # Base reward for eating food
 REWARD_GROWTH = 0.4       # Additional reward for growing
-PENALTY_WALL = -1.0       # Penalty for hitting wall
-PENALTY_DEATH = -2.0      # Penalty for dying
+PENALTY_WALL = -3.0       # Penalty for hitting wall
+PENALTY_DEATH = -10.0      # Penalty for dying
 
 # Additional Reward Modifiers
 REWARD_FOOD_HUNGER_SCALE = 1.5  # Multiplier for food reward based on hunger
@@ -57,8 +57,8 @@ PENALTY_WALL_STAY = -0.5        # Penalty for staying near wall
 PENALTY_SHRINK = -0.2           # Penalty for shrinking
 PENALTY_DANGER_ZONE = -0.2      # Penalty for being near wall
 PENALTY_STARVATION_BASE = -0.5  # Penalty for starvation
-PENALTY_SHARP_TURN = -0.001       # Penalty for sharp turns
-PENALTY_DIRECTION_CHANGE = -0.002  # Penalty for changing direction
+PENALTY_SHARP_TURN = -0.0001       # Penalty for sharp turns
+PENALTY_DIRECTION_CHANGE = -0.0002  # Penalty for changing direction
 
 # Worm Properties
 MAX_SEGMENTS = 20  # Maximum number of body segments
