@@ -100,7 +100,8 @@ class WormGame:
         
         # Font for displaying text
         if not headless:
-            self.font = pygame.font.Font(None, 36)
+            self.font = pygame.font.Font(None, 36)  # Regular font for bars
+            self.stats_font = pygame.font.Font(None, 24)  # Smaller font for stats
         
         # Movement properties
         self.angle = 0  # Current angle
@@ -234,6 +235,7 @@ class WormGame:
         self.PENALTY_SHRINK = PENALTY_SHRINK
         self.PENALTY_DANGER_ZONE = PENALTY_DANGER_ZONE  # Keep as is
         self.PENALTY_STARVATION_BASE = PENALTY_STARVATION_BASE
+        self.PENALTY_HEALTH_DAMAGE = -25.0  # Penalty per unit of health lost
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -436,12 +438,19 @@ class WormGame:
         
         if self.hunger <= 0:
             self.hunger = 0
-            # When starving, reduce health
+            # When starving, reduce health and apply penalty
+            old_health = self.health
             self.health = max(0, self.health - self.damage_per_hit)
+            health_lost = old_health - self.health
+            
             if self.health <= 0:
                 self.death_cause = "starvation"
                 self.last_reward_source = f"Death (Starvation) ({self.PENALTY_DEATH})"
                 return False, False
+            else:
+                # Apply health damage penalty
+                health_penalty = self.PENALTY_HEALTH_DAMAGE * health_lost
+                self.last_reward_source = f"Starvation Health Loss ({health_penalty})"
             return True, False
         
         # Handle shrinking
@@ -569,15 +578,20 @@ class WormGame:
             new_head_y - self.head_size < 0 or new_head_y + self.head_size > self.height):
             wall_collision = True
             
-            # Reduce health from wall collision
+            # Reduce health from wall collision and apply penalty
+            old_health = self.health
             self.health = max(0, self.health - self.damage_per_hit)
+            health_lost = old_health - self.health
+            
             if self.health <= 0:
                 self.death_cause = "wall_collision"
                 reward += self.PENALTY_DEATH
                 self.last_reward_source = f"Death (Wall Collision) ({self.PENALTY_DEATH})"
             else:
-                reward += self.PENALTY_WALL
-                self.last_reward_source = f"Wall Hit (-{self.damage_per_hit} health)"
+                # Apply both wall hit penalty and health damage penalty
+                health_penalty = self.PENALTY_HEALTH_DAMAGE * health_lost
+                reward += self.PENALTY_WALL + health_penalty
+                self.last_reward_source = f"Wall Hit ({self.PENALTY_WALL}) + Health Loss ({health_penalty})"
             
             # Bounce off walls by reversing velocity components
             if new_head_x - self.head_size < 0:  # Left wall
@@ -844,9 +858,6 @@ class WormGame:
         meter_x = self.game_width - meter_width - padding * 2
         meter_y = padding * 2
         
-        # Use smaller font for all text
-        font = pygame.font.Font(None, self.game_height // 30)  # Smaller font
-        
         # Draw hunger meter
         pygame.draw.rect(surface, (100, 100, 100),
                        (meter_x, meter_y, meter_width, meter_height))
@@ -863,7 +874,7 @@ class WormGame:
         
         # Draw "Hunger" label
         hunger_text = "Hunger"
-        text_surface = font.render(hunger_text, True, (200, 200, 200))
+        text_surface = self.font.render(hunger_text, True, (200, 200, 200))
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = meter_y + meter_height//2
@@ -883,7 +894,7 @@ class WormGame:
         
         # Draw "Level Progress" label
         progress_label = "Progress"  # Shortened for space
-        text_surface = font.render(progress_label, True, (200, 200, 200))
+        text_surface = self.font.render(progress_label, True, (200, 200, 200))
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = progress_y + meter_height//2
@@ -912,40 +923,33 @@ class WormGame:
         
         # Draw "Health" label
         health_text = "Health"
-        text_surface = font.render(health_text, True, (200, 200, 200))
+        text_surface = self.font.render(health_text, True, (200, 200, 200))
         text_rect = text_surface.get_rect()
         text_rect.right = meter_x - padding
         text_rect.centery = health_y + meter_height//2
         surface.blit(text_surface, text_rect)
         
-        # Draw stats in top-left corner
+        # Draw stats in top-left corner with smaller font
         stats_x = padding * 2
         stats_y = padding * 2
-        line_height = self.game_height // 30
+        line_height = 20  # Reduced line height for smaller font
         
-        # Draw stats with smaller font
+        # Stats to display
         stats = [
+            f"Steps: {self.steps_in_level}",
             f"Level: {self.level}",
             f"Score: {int(self.episode_reward)}",
-            f"Length: {self.num_segments}",
-            f"Last Reward: {self.last_reward:.1f}",
-            f"Source: {self.last_reward_source}"
+            f"Segments: {self.num_segments}",
+            f"Plants: {len(self.plants)}/{self.target_plants}"
         ]
         
         for stat in stats:
-            text_surface = font.render(stat, True, (200, 200, 200))
+            text_surface = self.stats_font.render(stat, True, (200, 200, 200))
             text_rect = text_surface.get_rect()
-            text_rect.topleft = (stats_x, stats_y)
+            text_rect.left = stats_x
+            text_rect.top = stats_y
             surface.blit(text_surface, text_rect)
             stats_y += line_height
-        
-        # Draw steps counter below level progress bar
-        steps_text = f"{self.steps_in_level}/{self.steps_for_level}"  
-        text_surface = font.render(steps_text, True, (200, 200, 200))
-        text_rect = text_surface.get_rect()
-        text_rect.right = self.game_width - padding * 2
-        text_rect.top = progress_y + meter_height + padding
-        surface.blit(text_surface, text_rect)
         
         # Draw game area border
         if surface is self.game_surface:
@@ -1346,12 +1350,19 @@ class WormGame:
         
         if self.hunger <= 0:
             self.hunger = 0
-            # When starving, reduce health
+            # When starving, reduce health and apply penalty
+            old_health = self.health
             self.health = max(0, self.health - self.damage_per_hit)
+            health_lost = old_health - self.health
+            
             if self.health <= 0:
                 self.death_cause = "starvation"
                 self.last_reward_source = f"Death (Starvation) ({self.PENALTY_DEATH})"
                 return False, False
+            else:
+                # Apply health damage penalty
+                health_penalty = self.PENALTY_HEALTH_DAMAGE * health_lost
+                self.last_reward_source = f"Starvation Health Loss ({health_penalty})"
             return True, False
         
         # Handle shrinking
