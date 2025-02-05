@@ -940,16 +940,20 @@ class WormGame:
             f"Level: {self.level}",
             f"Score: {int(self.episode_reward)}",
             f"Segments: {self.num_segments}",
-            f"Plants: {len(self.plants)}/{self.target_plants}"
+            f"Plants: {len(self.plants)}/{self.target_plants}",
+            "",  # Empty line before reward info
+            f"Last Reward: {self.last_reward:.1f}",
+            f"Source: {self.last_reward_source}"
         ]
         
         for stat in stats:
-            text_surface = self.stats_font.render(stat, True, (200, 200, 200))
-            text_rect = text_surface.get_rect()
-            text_rect.left = stats_x
-            text_rect.top = stats_y
-            surface.blit(text_surface, text_rect)
-            stats_y += line_height
+            if stat:  # Only render non-empty lines
+                text_surface = self.stats_font.render(stat, True, (200, 200, 200))
+                text_rect = text_surface.get_rect()
+                text_rect.left = stats_x
+                text_rect.top = stats_y
+                surface.blit(text_surface, text_rect)
+            stats_y += line_height  # Always increment y position even for empty lines
         
         # Draw game area border
         if surface is self.game_surface:
