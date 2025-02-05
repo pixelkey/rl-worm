@@ -14,7 +14,18 @@ import torch.nn.functional as F
 from analytics.metrics import WormAnalytics
 from worm_agent import WormAgent  # Import the training version
 import json
-from config import STATE_SIZE, ACTION_SIZE
+from config import (
+    STATE_SIZE, ACTION_SIZE,
+    # Base Rewards
+    REWARD_FOOD_BASE, REWARD_GROWTH, PENALTY_WALL, PENALTY_DEATH,
+    # Additional Rewards
+    REWARD_FOOD_HUNGER_SCALE, REWARD_SMOOTH_MOVEMENT, REWARD_EXPLORATION,
+    # Additional Penalties
+    PENALTY_WALL_STAY, PENALTY_SHARP_TURN, PENALTY_SHRINK,
+    PENALTY_DANGER_ZONE, PENALTY_STARVATION_BASE,
+    # Display
+    SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+)
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -37,10 +48,10 @@ class WormGame:
         # Set dimensions based on mode
         if headless:
             # Use smaller fixed dimensions for headless mode
-            self.screen_width = 800
-            self.screen_height = 600
-            self.game_width = 800
-            self.game_height = 600
+            self.width = SCREEN_WIDTH
+            self.height = SCREEN_HEIGHT
+            self.game_width = self.width
+            self.game_height = self.height
         else:
             # Get display info for window sizing
             display_info = pygame.display.Info()
@@ -170,6 +181,15 @@ class WormGame:
         self.width = self.game_width
         self.height = self.game_height
         
+        # Physics parameters
+        self.acceleration = 0.5
+        self.angular_acceleration = 0.15
+        self.friction = 0.02
+        self.angular_friction = 0.1
+        self.max_speed = 8.0
+        self.max_angular_speed = 0.2
+        self.wall_bounce_factor = 0.5
+        
         # Wall collision tracking
         self.wall_stay_count = 0
         self.danger_zone_distance = self.head_size * 1.8
@@ -180,22 +200,25 @@ class WormGame:
         self.wall_stay_exp_base = 1.5  # Increased from 1.15 for stronger exponential penalty
         
         # Reward/Penalty constants
-        self.REWARD_FOOD_BASE = 350.0  # Increased to make food more rewarding
-        self.REWARD_FOOD_HUNGER_SCALE = 2.0
-        self.REWARD_GROWTH = 300.0
-        self.REWARD_SMOOTH_MOVEMENT = 1.5
-        self.REWARD_EXPLORATION = 20.0
+        # Base Rewards
+        self.REWARD_FOOD_BASE = REWARD_FOOD_BASE
+        self.REWARD_GROWTH = REWARD_GROWTH
+        self.PENALTY_WALL = PENALTY_WALL
+        self.PENALTY_DEATH = PENALTY_DEATH
+        
+        # Additional Reward Modifiers
+        self.REWARD_FOOD_HUNGER_SCALE = REWARD_FOOD_HUNGER_SCALE
+        self.REWARD_SMOOTH_MOVEMENT = REWARD_SMOOTH_MOVEMENT
+        self.REWARD_EXPLORATION = REWARD_EXPLORATION
         
         # Penalties
-        self.PENALTY_WALL = -80.0  # Keep strong wall collision penalty
-        self.PENALTY_WALL_STAY = -5.0  # Keep strong wall stay penalty
+        self.PENALTY_WALL_STAY = PENALTY_WALL_STAY  # Keep strong wall stay penalty
         self.wall_stay_scale = 1.2  # Keep strong scaling
-        self.PENALTY_SHARP_TURN = -0.1  # Reduced to be less punishing for exploration
+        self.PENALTY_SHARP_TURN = PENALTY_SHARP_TURN  # Reduced to be less punishing for exploration
         self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
-        self.PENALTY_SHRINK = -15.0
-        self.PENALTY_DANGER_ZONE = -2.0  # Keep as is
-        self.PENALTY_STARVATION_BASE = -1.5
-        self.PENALTY_DEATH = -500.0  # Penalty applied when the worm dies prematurely
+        self.PENALTY_SHRINK = PENALTY_SHRINK
+        self.PENALTY_DANGER_ZONE = PENALTY_DANGER_ZONE  # Keep as is
+        self.PENALTY_STARVATION_BASE = PENALTY_STARVATION_BASE
         
         # Generate rocky walls once at initialization
         self.wall_points = 100  # More points for finer detail
@@ -1361,7 +1384,7 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
     running = True
     while running:
-        clock.tick(60)
+        clock.tick(FPS)
         
         # Handle events
         for event in pygame.event.get():

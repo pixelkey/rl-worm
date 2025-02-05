@@ -15,7 +15,11 @@ import os
 import json
 from app import WormGame
 from worm_agent import WormAgent
-from config import STATE_SIZE, ACTION_SIZE
+from config import (
+    STATE_SIZE, ACTION_SIZE,
+    TRAINING_EPISODES, STARTING_STEPS, MAX_STEPS, STEPS_INCREMENT,
+    PERFORMANCE_THRESHOLD, SAVE_INTERVAL, PRINT_INTERVAL
+)
 
 # Set up environment variables for display
 os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
@@ -24,15 +28,6 @@ os.environ["SDL_VIDEODRIVER"] = "x11"
 
 # Initialize pygame (headless mode)
 pygame.init()
-
-# Training parameters
-TRAINING_EPISODES = 1000
-STARTING_STEPS = 1000  # Starting number of steps
-MAX_STEPS = 6000  # Maximum steps allowed
-STEPS_INCREMENT = 50  # Changed from 200 to 50 steps per episode
-PERFORMANCE_THRESHOLD = -50  # More lenient threshold
-SAVE_INTERVAL = 10
-PRINT_INTERVAL = 1
 
 class ProgressBar:
     def __init__(self, total, width=50):
