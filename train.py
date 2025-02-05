@@ -15,6 +15,7 @@ import os
 import json
 from app import WormGame
 from worm_agent import WormAgent
+from config import STATE_SIZE, ACTION_SIZE
 
 # Set up environment variables for display
 os.environ["__NV_PRIME_RENDER_OFFLOAD"] = "1"
@@ -62,6 +63,9 @@ def fast_training():
     print("\nStarting fast training mode...")
     print("Press Ctrl+C at any time to stop training and save progress\n")
     
+    # Initialize agent and analytics
+    agent = WormAgent(STATE_SIZE, ACTION_SIZE)
+    
     # Initialize or load step count from checkpoint
     checkpoint_path = os.path.join("models", "saved", "checkpoint.json")
     model_path = os.path.join("models", "saved", "worm_model.pth")
@@ -69,12 +73,6 @@ def fast_training():
     if os.path.exists(model_path):
         print(f"Found model at: {model_path}")
         try:
-            # Create agent first so we can verify weights
-            # Initialize agent and analytics
-            STATE_SIZE = 15  # position (2), velocity (2), angle (1), angular_vel (1), plant info (3), plant_value (1), walls (4), hunger (1)
-            ACTION_SIZE = 9
-            agent = WormAgent(STATE_SIZE, ACTION_SIZE)
-            
             # Get a sample of initial weights for verification
             initial_weights = next(agent.model.parameters()).clone().data[0][0].item()
             print(f"Initial model weights (sample): {initial_weights:.6f}")

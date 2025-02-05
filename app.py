@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from analytics.metrics import WormAnalytics
 from worm_agent import WormAgent  # Import the training version
 import json
+from config import STATE_SIZE, ACTION_SIZE
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -1301,8 +1302,6 @@ class WormGame:
             self.next_natural_blink = current_time + random.uniform(3.0, 6.0)
 
 # ML Agent setup
-STATE_SIZE = 15  # plant info (12), worm direction (2), speed (1)
-ACTION_SIZE = 9  # 8 directions + no movement
 agent = WormAgent(STATE_SIZE, ACTION_SIZE)
 
 # Load the best model if in demo mode
