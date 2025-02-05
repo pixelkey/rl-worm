@@ -13,6 +13,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from analytics.metrics import WormAnalytics
 from worm_agent import WormAgent  # Import the training version
+import json
 
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Run the intelligent worm simulation')
@@ -1393,10 +1394,17 @@ if __name__ == "__main__":
         
         if done:
             print("Game Over! Starting new episode...")
-            # Apply death penalty if worm dies early (must check BEFORE reset)
-            if game.hunger <= 0 or game.num_segments <= 1:  
+            
+            # Log current health metrics before game reset
+            print(f"Episode ending; starvation_counter = {game.starvation_counter}, num_segments = {game.num_segments}")
+            
+            # Apply death penalty if conditions are met
+            if game.starvation_counter >= MAX_STARVATION or game.num_segments <= 1:
                 reward += game.PENALTY_DEATH
-                print(f"Death penalty applied: {game.PENALTY_DEATH}")
+                print(f"DEATH PENALTY TRIGGERED! Starvation: {game.starvation_counter}/{MAX_STARVATION}, Segments: {game.num_segments}")
+            else:
+                print(f"Normal episode end. Starvation: {game.starvation_counter}/{MAX_STARVATION}, Segments: {game.num_segments}")
+            
             game.reset()
             
         # Increment steps
@@ -1423,5 +1431,5 @@ if __name__ == "__main__":
             wall_collisions = 0
             total_distance = 0
             game.reset()
-            
+    
     pygame.quit()

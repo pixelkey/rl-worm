@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta
 import sys
 import os
+import json
 from app import WormGame
 from worm_agent import WormAgent
 
@@ -25,7 +26,7 @@ pygame.init()
 
 # Training parameters
 TRAINING_EPISODES = 1000
-MIN_STEPS = 1000  # Starting number of steps
+STARTING_STEPS = 1000  # Starting number of steps
 MAX_STEPS = 6000  # Maximum steps allowed
 STEPS_INCREMENT = 50  # Changed from 200 to 50 steps per episode
 PERFORMANCE_THRESHOLD = -50  # More lenient threshold
@@ -61,7 +62,34 @@ def fast_training():
     print("\nStarting fast training mode...")
     print("Press Ctrl+C at any time to stop training and save progress\n")
     
-    progress = ProgressBar(TRAINING_EPISODES)
+    # Initialize or load step count from checkpoint
+    checkpoint_path = os.path.join("models", "saved", "checkpoint.json")
+    model_path = os.path.join("models", "saved", "worm_model.pth")
+    start_episode = 0
+    if os.path.exists(model_path):
+        print(f"Found model at: {model_path}")
+        try:
+            model_state = torch.load(model_path)
+            agent.model.load_state_dict(model_state)
+            print("Successfully loaded model weights")
+        except Exception as e:
+            print(f"Error loading model: {str(e)}")
+            
+        if os.path.exists(checkpoint_path):
+            print(f"Found checkpoint at: {checkpoint_path}")
+            with open(checkpoint_path, 'r') as f:
+                checkpoint_data = json.load(f)
+                global STARTING_STEPS
+                STARTING_STEPS = checkpoint_data.get('steps', STARTING_STEPS)
+                start_episode = checkpoint_data.get('episode', 0)
+                print(f"Resuming from episode {start_episode} with step count: {STARTING_STEPS}")
+        else:
+            print(f"No checkpoint found at: {checkpoint_path}")
+    else:
+        print(f"No model found at: {model_path}")
+
+    remaining_episodes = TRAINING_EPISODES - start_episode
+    progress = ProgressBar(remaining_episodes)
     start_time = time.time()
     
     # Initialize agent and analytics
@@ -73,7 +101,7 @@ def fast_training():
     last_time = time.time()
     
     try:
-        for episode in range(TRAINING_EPISODES):
+        for episode in range(start_episode, TRAINING_EPISODES):
             # Initialize game state
             game = WormGame(headless=True)
             state = game.reset()
@@ -97,7 +125,7 @@ def fast_training():
             training_time = 0
             game_time = 0
             
-            steps_per_episode = MIN_STEPS + (episode * STEPS_INCREMENT)  # Add increment each episode
+            steps_per_episode = STARTING_STEPS + (episode * STEPS_INCREMENT)  # Add increment each episode
             if steps_per_episode > MAX_STEPS:
                 steps_per_episode = MAX_STEPS
             
@@ -194,9 +222,16 @@ def fast_training():
             # Save model periodically
             if episode % SAVE_INTERVAL == 0:
                 agent.save(episode)
+                # Save both steps and episode to checkpoint
+                with open(checkpoint_path, 'w') as f:
+                    json.dump({
+                        'steps': steps_per_episode,
+                        'episode': episode
+                    }, f)
+                print(f"Saved checkpoint at episode {episode}")
             
             # Update progress bar
-            progress.update(episode + 1)
+            progress.update(episode - start_episode + 1)
             
             # Print metrics periodically
             if episode % PRINT_INTERVAL == 0:

@@ -37,6 +37,7 @@ env/
 
 # ML/RL specific
 models/saved/
+models/saved/checkpoint.json
 analytics/reports/
 *.pth
 *.pt
