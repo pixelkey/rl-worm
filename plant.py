@@ -1132,12 +1132,24 @@ class Plant:
         
         # Draw target indicator if this is the current target
         if is_target:
-            # Discreet dot selector under the plant, updated to be larger and positioned a bit higher
-            dot_radius = 6
-            dot_color = (255, 255, 0)  # Yellow
-            dot_x = int(self.x)
-            dot_y = int(self.y + self.base_size * 0.5)
-            pygame.draw.circle(surface, dot_color, (dot_x, dot_y), dot_radius)
+            # Draw green eye symbol below the plant
+            eye_size = 32  # Size of the eye
+            eye_color = (100, 255, 100)  # Bright green
+            pupil_color = (0, 100, 0)    # Dark green
+            eye_y = int(self.y + self.base_size * 0.7)  # Position below the plant
+            
+            # Draw eye white (oval shape)
+            eye_rect = pygame.Rect(
+                int(self.x - eye_size//2),
+                int(eye_y - eye_size//4),
+                eye_size,
+                eye_size//2
+            )
+            pygame.draw.ellipse(surface, eye_color, eye_rect)
+            
+            # Draw pupil
+            pupil_size = eye_size // 4  # Pupil size relative to eye width
+            pygame.draw.circle(surface, pupil_color, (int(self.x), int(eye_y)), pupil_size)
         
         # Only show nutritional values if we have worm position info
         if worm_x is not None and worm_y is not None and worm_speed is not None:
