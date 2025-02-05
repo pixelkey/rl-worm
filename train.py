@@ -18,7 +18,8 @@ from worm_agent import WormAgent
 from config import (
     STATE_SIZE, ACTION_SIZE,
     TRAINING_EPISODES, STARTING_STEPS, MAX_STEPS, STEPS_INCREMENT,
-    PERFORMANCE_THRESHOLD, SAVE_INTERVAL, PRINT_INTERVAL
+    PERFORMANCE_THRESHOLD, SAVE_INTERVAL, PRINT_INTERVAL,
+    MODEL_DIR, MODEL_PATH, CHECKPOINT_PATH
 )
 
 # Set up environment variables for display
@@ -62,8 +63,8 @@ def fast_training():
     agent = WormAgent(STATE_SIZE, ACTION_SIZE)
     
     # Initialize or load step count from checkpoint
-    checkpoint_path = os.path.join("models", "saved", "checkpoint.json")
-    model_path = os.path.join("models", "saved", "worm_model.pth")
+    checkpoint_path = CHECKPOINT_PATH
+    model_path = MODEL_PATH
     start_episode = 0
     if os.path.exists(model_path):
         print(f"Found model at: {model_path}")
@@ -107,8 +108,11 @@ def fast_training():
     else:
         print(f"No model found at: {model_path}")
 
-    remaining_episodes = TRAINING_EPISODES - start_episode
-    progress = ProgressBar(remaining_episodes)
+    # Initialize progress bar with total episodes, not just remaining
+    progress = ProgressBar(TRAINING_EPISODES)
+    # Update progress bar to current episode if resuming
+    if start_episode > 0:
+        progress.update(start_episode)
     start_time = time.time()
     
     # Initialize analytics
@@ -240,15 +244,17 @@ def fast_training():
                 # Use agent's built-in save method
                 agent.save(episode)
                 # Save both steps and episode to checkpoint
-                with open(checkpoint_path, 'w') as f:
-                    json.dump({
-                        'steps': steps_per_episode,
-                        'episode': episode
-                    }, f)
+                checkpoint_data = {
+                    'episode': episode + 1,
+                    'steps': steps_per_episode
+                }
+                os.makedirs(MODEL_DIR, exist_ok=True)
+                with open(CHECKPOINT_PATH, 'w') as f:
+                    json.dump(checkpoint_data, f)
                 print(f"Saved checkpoint at episode {episode}")
             
             # Update progress bar
-            progress.update(episode - start_episode + 1)
+            progress.update(episode + 1)
             
             # Print metrics periodically
             if episode % PRINT_INTERVAL == 0:

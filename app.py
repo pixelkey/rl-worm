@@ -22,7 +22,15 @@ from config import (
     REWARD_FOOD_HUNGER_SCALE, REWARD_SMOOTH_MOVEMENT, REWARD_EXPLORATION,
     # Additional Penalties
     PENALTY_WALL_STAY, PENALTY_SHARP_TURN, PENALTY_SHRINK,
-    PENALTY_DANGER_ZONE, PENALTY_STARVATION_BASE,
+    PENALTY_DANGER_ZONE, PENALTY_STARVATION_BASE, PENALTY_DIRECTION_CHANGE,
+    # Level Parameters
+    MIN_STEPS, MAX_LEVEL_STEPS, LEVEL_STEPS_INCREMENT,
+    # Worm Properties
+    MAX_SEGMENTS, MIN_SEGMENTS,
+    # Hunger Mechanics
+    MAX_HUNGER, BASE_HUNGER_RATE, HUNGER_GAIN_FROM_PLANT, SHRINK_HUNGER_THRESHOLD,
+    # Plant Properties
+    MIN_PLANTS, MAX_PLANTS, PLANT_SPAWN_CHANCE,
     # Display
     SCREEN_WIDTH, SCREEN_HEIGHT, FPS
 )
@@ -48,10 +56,10 @@ class WormGame:
         # Set dimensions based on mode
         if headless:
             # Use smaller fixed dimensions for headless mode
-            self.width = SCREEN_WIDTH
-            self.height = SCREEN_HEIGHT
-            self.game_width = self.width
-            self.game_height = self.height
+            self.screen_width = SCREEN_WIDTH
+            self.screen_height = SCREEN_HEIGHT
+            self.game_width = self.screen_width
+            self.game_height = self.screen_height
         else:
             # Get display info for window sizing
             display_info = pygame.display.Info()
@@ -81,9 +89,9 @@ class WormGame:
         self.level = 1
         self.episode_reward = 0.0
         self.steps_in_level = 0
-        self.min_steps = 6000  # Changed from 2000 to 6000
-        self.max_steps = 20000  # Increased max steps to accommodate longer levels
-        self.steps_increment = 1000  # Changed from 100 to 1000
+        self.min_steps = MIN_STEPS
+        self.max_steps = MAX_LEVEL_STEPS
+        self.steps_increment = LEVEL_STEPS_INCREMENT
         self.steps_for_level = self.min_steps  # Current level's step requirement
         
         # Add level and episode tracking
@@ -104,9 +112,9 @@ class WormGame:
         # Worm properties - scale with game area
         self.segment_length = int(self.game_height/20)  # Spacing between segments
         self.segment_width = int(self.game_height/25)   # Size of body segments
-        self.num_segments = 2  # Starting number of segments
-        self.max_segments = 30
-        self.min_segments = 2
+        self.num_segments = MIN_SEGMENTS  # Starting number of segments
+        self.max_segments = MAX_SEGMENTS
+        self.min_segments = MIN_SEGMENTS
         self.head_size = int(self.game_height/20)      # Size of head
         self.segment_spacing = self.head_size * 1.2  # Fixed spacing between segments
         
@@ -142,28 +150,28 @@ class WormGame:
         self.min_std = 5.0  # Increased from 1.0 to allow more variation
         
         # Hunger and growth mechanics
-        self.max_hunger = 1000
+        self.max_hunger = MAX_HUNGER
         self.hunger = self.max_hunger
-        self.base_hunger_rate = 0.1  # Back to original value
+        self.base_hunger_rate = BASE_HUNGER_RATE
         self.current_hunger_rate = self.base_hunger_rate
-        self.hunger_gain_from_plant = 300  # Back to original value
-        self.shrink_hunger_threshold = 0.5  # Back to original value
+        self.hunger_gain_from_plant = HUNGER_GAIN_FROM_PLANT
+        self.shrink_hunger_threshold = SHRINK_HUNGER_THRESHOLD
         self.shrink_cooldown = 60
         self.shrink_timer = 0
         
         # Plant management
-        self.min_plants = 2
-        self.max_plants = 8
-        self.target_plants = random.randint(self.min_plants, self.max_plants)
-        self.plant_spawn_chance = 0.02  # Back to original value
+        self.min_plants = MIN_PLANTS
+        self.max_plants = MAX_PLANTS
+        self.target_plants = random.randint(MIN_PLANTS, MAX_PLANTS)
+        self.plant_spawn_chance = PLANT_SPAWN_CHANCE
         self.plant_spawn_cooldown = 0
         self.plant_spawn_cooldown_max = 60
         
         # Plant mechanics
         self.plants = []
-        self.base_plant_spawn_chance = 0.02  # Back to original value
+        self.base_plant_spawn_chance = PLANT_SPAWN_CHANCE
         self.current_plant_spawn_chance = self.base_plant_spawn_chance
-        self.base_max_plants = 5  # Back to original value
+        self.base_max_plants = MAX_PLANTS
         self.current_max_plants = self.base_max_plants
         
         # Colors
@@ -215,7 +223,7 @@ class WormGame:
         self.PENALTY_WALL_STAY = PENALTY_WALL_STAY  # Keep strong wall stay penalty
         self.wall_stay_scale = 1.2  # Keep strong scaling
         self.PENALTY_SHARP_TURN = PENALTY_SHARP_TURN  # Reduced to be less punishing for exploration
-        self.PENALTY_DIRECTION_CHANGE = -0.05  # Reduced to be less punishing for exploration
+        self.PENALTY_DIRECTION_CHANGE = PENALTY_DIRECTION_CHANGE  # Small penalty for changing direction
         self.PENALTY_SHRINK = PENALTY_SHRINK
         self.PENALTY_DANGER_ZONE = PENALTY_DANGER_ZONE  # Keep as is
         self.PENALTY_STARVATION_BASE = PENALTY_STARVATION_BASE

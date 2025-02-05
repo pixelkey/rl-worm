@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from config import MODEL_DIR, MODEL_PATH
 
 class WormBrain(nn.Module):
     def __init__(self, state_size, action_size):
@@ -147,30 +148,26 @@ class WormAgent:
     
     def save(self, episode):
         # Save only the model weights to prevent pickle security issues
-        model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-        os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, 'worm_model.pth')
+        os.makedirs(MODEL_DIR, exist_ok=True)
         
         torch.save({
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
             'state_size': self.state_size
-        }, model_path)
-        print(f"Saved model state at episode {episode} to {model_path}")
+        }, MODEL_PATH)
+        print(f"Saved model state at episode {episode} to {MODEL_PATH}")
 
     def load(self):
         try:
-            model_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'models', 'saved')
-            model_path = os.path.join(model_dir, 'worm_model.pth')
-            print(f"Attempting to load model from {model_path}")
+            print(f"Attempting to load model from {MODEL_PATH}")
             
-            if not os.path.exists(model_path):
-                print(f"Model file does not exist at {model_path}")
+            if not os.path.exists(MODEL_PATH):
+                print(f"Model file does not exist at {MODEL_PATH}")
                 print("No saved model found, starting fresh")
                 return
                 
-            checkpoint = torch.load(model_path, map_location=self.device)
+            checkpoint = torch.load(MODEL_PATH, map_location=self.device)
             if checkpoint['state_size'] == self.state_size:
                 self.model.load_state_dict(checkpoint['model_state_dict'])
                 self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
